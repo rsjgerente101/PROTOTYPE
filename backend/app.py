@@ -948,6 +948,9 @@ def enhance_assignment(
             time_gain = current_eval["total"]["operational_minutes"] - trial_eval["total"]["operational_minutes"]
             score_gain = current_score - trial_score
 
+            if distance_gain < -5.0:
+                continue
+
             if score_gain > best_score_gain:
                 best_score_gain = score_gain
                 best_trial = trial
