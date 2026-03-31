@@ -1,0 +1,48 @@
+/* PLEASE NOTE: THESE TAILWIND IMPORTS SHOULD NEVER BE DELETED */
+@import "leaflet/dist/leaflet.css";
+@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+/* DO NOT DELETE THESE TAILWIND IMPORTS, OTHERWISE THE STYLING WILL NOT RENDER AT ALL */
+
+.map-legend {
+  background: white;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  margin: 4px 0;
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+
+.depot {
+  background: #DC2626;
+}
+
+.stop {
+  background: gray;
+}
+
+.highlighted {
+  background: orange;
+  border: 2px solid black;
+}
+
+.line {
+  width: 20px;
+  height: 3px;
+  background: gray;
+  margin-right: 8px;
+}
