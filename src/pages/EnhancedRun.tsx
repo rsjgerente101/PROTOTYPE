@@ -139,19 +139,26 @@ const EnhancedRun: React.FC = () => {
       setBusy(true);
       setMessage('Running enhanced DEQ experiment on backend...');
 
-      const result = await runEnhanced({
-        datasetId: dataset.id,
-        baselineRunId: baselineSummary.id,
-        fairnessWeight: Number(parameters.fairnessWeight) || 0.45,
-        distanceWeight: Number(parameters.distanceWeight) || 0.30,
-        timeWeight: Number(parameters.timeWeight) || 0.25,
-        maxIterations: Number(parameters.maxIterations) || 20,
-        borderFraction: Number(parameters.borderFraction) || 0.35,
-        runProfile:
-          dataset.datasetRole === 'primary_reconstruction'
-            ? 'amazon_expanded_search'
-            : 'default_balanced',
-      });
+      const isAmazon = dataset.datasetRole === 'primary_reconstruction';
+
+      const result = await runEnhanced(
+        isAmazon
+          ? {
+              datasetId: dataset.id,
+              baselineRunId: baselineSummary.id,
+              runProfile: 'amazon_expanded_search',
+            }
+          : {
+              datasetId: dataset.id,
+              baselineRunId: baselineSummary.id,
+              fairnessWeight: Number(parameters.fairnessWeight) || 0.45,
+              distanceWeight: Number(parameters.distanceWeight) || 0.30,
+              timeWeight: Number(parameters.timeWeight) || 0.25,
+              maxIterations: Number(parameters.maxIterations) || 20,
+              borderFraction: Number(parameters.borderFraction) || 0.35,
+              runProfile: 'default_balanced',
+            }
+      );
 
       const summary: StoredRunSummary = {
         id: result.id,

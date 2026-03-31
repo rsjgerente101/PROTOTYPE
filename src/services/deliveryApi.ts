@@ -108,11 +108,11 @@ export async function runEnhanced(params: EnhancedRunRequest): Promise<Algorithm
     body: JSON.stringify({
       dataset_id: params.datasetId,
       baseline_run_id: params.baselineRunId,
-      fairness_weight: params.fairnessWeight ?? 0.45,
-      distance_weight: params.distanceWeight ?? 0.30,
-      time_weight: params.timeWeight ?? 0.25,
-      max_iterations: params.maxIterations ?? 20,
-      border_fraction: params.borderFraction ?? 0.35,
+      fairness_weight: params.fairnessWeight,
+      distance_weight: params.distanceWeight,
+      time_weight: params.timeWeight,
+      max_iterations: params.maxIterations,
+      border_fraction: params.borderFraction,
       run_profile: params.runProfile,
     }),
   });
