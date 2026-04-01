@@ -58,16 +58,16 @@ RUN_PROFILES: Dict[str, Dict[str, Any]] = {
         "enhanced_border_fraction": 0.50,
     },
     "amazon_expanded_search": {
-        "preview_initial_radius_km": 9.0,
-        "preview_max_radius_km": 20.0,
-        "preview_local_cap_km": 18.0,
-        "preview_osm_threshold_km": 18.0,
-        "preview_max_total_stops": 14,
+        "preview_initial_radius_km": 12.0,
+        "preview_max_radius_km": 26.0,
+        "preview_local_cap_km": 22.0,
+        "preview_osm_threshold_km": 22.0,
+        "preview_max_total_stops": 18,
         "enhanced_fairness_weight": 0.50,
         "enhanced_distance_weight": 0.35,
         "enhanced_time_weight": 0.15,
-        "enhanced_max_iterations": 30,
-        "enhanced_border_fraction": 0.70,
+        "enhanced_max_iterations": 50,
+        "enhanced_border_fraction": 1.00,
     },
 }
 
@@ -199,7 +199,7 @@ def load_or_build_osm_preview_graph(points_df: pd.DataFrame):
         if d > max_preview_km:
             max_preview_km = d
 
-    graph_radius_km = min(max(3.0, max_preview_km * 1.25), 8.0)
+    graph_radius_km = min(max(3.0, max_preview_km * 1.15), 20.0)
     graph_radius_m = int(graph_radius_km * 1000.0)
 
     cache_name = f"osm_point_{depot_lat:.5f}_{depot_lon:.5f}_{graph_radius_m}m.graphml".replace("-", "m")
@@ -852,6 +852,49 @@ def border_candidates(assign_df: pd.DataFrame, heavy_rep: str, light_rep: str, f
     return heavy.head(take)["index"].astype(int).tolist()
 
 
+def swap_candidates(
+    assign_df: pd.DataFrame,
+    heavy_rep: str,
+    light_rep: str,
+    fraction: float,
+) -> Tuple[List[int], List[int]]:
+    """
+    Candidate rows for one-for-one swap search.
+    We take a border subset from both reps, guided by proximity toward the other rep.
+    """
+    heavy = assign_df[assign_df["rep_id"] == heavy_rep].copy()
+    light = assign_df[assign_df["rep_id"] == light_rep].copy()
+
+    if heavy.empty or light.empty:
+        return [], []
+
+    heavy_target_lat = light["customer_lat"].mean()
+    heavy_target_lon = light["customer_lon"].mean()
+
+    light_target_lat = heavy["customer_lat"].mean()
+    light_target_lon = heavy["customer_lon"].mean()
+
+    heavy["to_target"] = heavy.apply(
+        lambda r: haversine_km(r["customer_lat"], r["customer_lon"], heavy_target_lat, heavy_target_lon),
+        axis=1,
+    )
+    light["to_target"] = light.apply(
+        lambda r: haversine_km(r["customer_lat"], r["customer_lon"], light_target_lat, light_target_lon),
+        axis=1,
+    )
+
+    heavy = heavy.sort_values(["to_target", "predicted_eta_min"]).reset_index()
+    light = light.sort_values(["to_target", "predicted_eta_min"]).reset_index()
+
+    heavy_take = max(1, int(math.ceil(len(heavy) * fraction)))
+    light_take = max(1, int(math.ceil(len(light) * fraction)))
+
+    heavy_idx = heavy.head(heavy_take)["index"].astype(int).tolist()
+    light_idx = light.head(light_take)["index"].astype(int).tolist()
+
+    return heavy_idx, light_idx
+
+
 def evaluate_assignment(
     assign_df: pd.DataFrame,
     speed_kmph: float,
@@ -906,14 +949,11 @@ def enhance_assignment(
         if len(rep_perf) < 2:
             break
 
-        heavy_rep = str(rep_perf.iloc[0]["rep_id"])
-        light_rep = str(rep_perf.iloc[-1]["rep_id"])
-        workload_gap = float(rep_perf.iloc[0]["operational_minutes"] - rep_perf.iloc[-1]["operational_minutes"])
-
-        if workload_gap < 5.0:
+        overall_gap = float(
+            rep_perf.iloc[0]["operational_minutes"] - rep_perf.iloc[-1]["operational_minutes"]
+        )
+        if overall_gap < 5.0:
             break
-
-        candidates = border_candidates(current, heavy_rep, light_rep, border_fraction)
 
         current_score = objective_value(
             current_eval["fairness"],
@@ -929,69 +969,218 @@ def enhance_assignment(
         best_log = None
         best_score_gain = 0.0
 
-        for idx in candidates:
-            trial = current.copy()
-            trial.loc[idx, "rep_id"] = light_rep
-            trial_eval = evaluate_assignment(trial, speed_kmph, service_min, distance_matrix)
+        # Try more than one heavy/light pair before giving up.
+        # Still DEQ-guided: explore from the heavy end toward the light end.
+        n_reps = len(rep_perf)
+        heavy_count = min(3, n_reps - 1)
+        light_count = min(3, n_reps - 1)
 
-            trial_score = objective_value(
-                trial_eval["fairness"],
-                trial_eval["total"]["distance_km"],
-                trial_eval["total"]["operational_minutes"],
-                fairness_weight,
-                distance_weight,
-                time_weight,
-            )
+        heavy_ids = [str(rep_perf.iloc[i]["rep_id"]) for i in range(heavy_count)]
+        light_ids = [str(rep_perf.iloc[n_reps - 1 - j]["rep_id"]) for j in range(light_count)]
 
-            fairness_gain = trial_eval["fairness"] - current_eval["fairness"]
-            distance_gain = current_eval["total"]["distance_km"] - trial_eval["total"]["distance_km"]
-            time_gain = current_eval["total"]["operational_minutes"] - trial_eval["total"]["operational_minutes"]
-            score_gain = current_score - trial_score
+        tried_pairs = set()
 
-            if distance_gain < -5.0:
-                continue
+        for heavy_rep in heavy_ids:
+            for light_rep in light_ids:
+                if heavy_rep == light_rep:
+                    continue
+                if (heavy_rep, light_rep) in tried_pairs:
+                    continue
+                tried_pairs.add((heavy_rep, light_rep))
 
-            if score_gain > best_score_gain:
-                best_score_gain = score_gain
-                best_trial = trial
-                best_trial_eval = trial_eval
-                best_log = {
-                    "iteration": iteration,
-                    "moved_order": str(current.loc[idx, "order_id"]),
-                    "from_rep": heavy_rep,
-                    "to_rep": light_rep,
-                    "fairness_before": round(current_eval["fairness"], 6),
-                    "fairness_after": round(trial_eval["fairness"], 6),
-                    "distance_before": round(current_eval["total"]["distance_km"], 2),
-                    "distance_after": round(trial_eval["total"]["distance_km"], 2),
-                    "operational_before": round(current_eval["total"]["operational_minutes"], 2),
-                    "operational_after": round(trial_eval["total"]["operational_minutes"], 2),
-                    "score_before": round(current_score, 4),
-                    "score_after": round(trial_score, 4),
-                    "score_gain": round(score_gain, 4),
-                    "fairness_gain": round(fairness_gain, 6),
-                    "distance_gain": round(distance_gain, 4),
-                    "time_gain": round(time_gain, 4),
-                    "accepted": score_gain > 0,
-                }
+                heavy_minutes = float(
+                    rep_perf.loc[rep_perf["rep_id"] == heavy_rep, "operational_minutes"].iloc[0]
+                )
+                light_minutes = float(
+                    rep_perf.loc[rep_perf["rep_id"] == light_rep, "operational_minutes"].iloc[0]
+                )
 
-        if best_trial is not None and best_score_gain > 0:
-            current = best_trial
-            current_eval = best_trial_eval
-            logs.append(best_log)
-        else:
-            logs.append({
-                "iteration": iteration,
-                "from_rep": heavy_rep,
-                "to_rep": light_rep,
-                "accepted": False,
-                "reason": "no improving move found",
-            })
-            break
+                workload_gap = heavy_minutes - light_minutes
+                if workload_gap < 5.0:
+                    continue
+
+                candidates = border_candidates(current, heavy_rep, light_rep, border_fraction)
+
+                for idx in candidates:
+                    trial = current.copy()
+                    trial.loc[idx, "rep_id"] = light_rep
+                    trial_eval = evaluate_assignment(trial, speed_kmph, service_min, distance_matrix)
+
+                    trial_score = objective_value(
+                        trial_eval["fairness"],
+                        trial_eval["total"]["distance_km"],
+                        trial_eval["total"]["operational_minutes"],
+                        fairness_weight,
+                        distance_weight,
+                        time_weight,
+                    )
+
+                    fairness_gain = trial_eval["fairness"] - current_eval["fairness"]
+                    distance_gain = current_eval["total"]["distance_km"] - trial_eval["total"]["distance_km"]
+                    time_gain = current_eval["total"]["operational_minutes"] - trial_eval["total"]["operational_minutes"]
+                    score_gain = current_score - trial_score
+
+                    # Block clearly harmful distance moves.
+                    if distance_gain < -12.0:
+                        continue
+
+                    if distance_gain < -4.0 and fairness_gain < 0.06:
+                        continue
+
+                    if score_gain > best_score_gain:
+                        best_score_gain = score_gain
+                        best_trial = trial
+                        best_trial_eval = trial_eval
+                        best_log = {
+                            "iteration": iteration,
+                            "move_type": "transfer",
+                            "moved_order": str(current.loc[idx, "order_id"]),
+                            "from_rep": heavy_rep,
+                            "to_rep": light_rep,
+                            "fairness_before": round(current_eval["fairness"], 6),
+                            "fairness_after": round(trial_eval["fairness"], 6),
+                            "distance_before": round(current_eval["total"]["distance_km"], 2),
+                            "distance_after": round(trial_eval["total"]["distance_km"], 2),
+                            "operational_before": round(current_eval["total"]["operational_minutes"], 2),
+                            "operational_after": round(trial_eval["total"]["operational_minutes"], 2),
+                            "score_before": round(current_score, 4),
+                            "score_after": round(trial_score, 4),
+                            "score_gain": round(score_gain, 4),
+                            "fairness_gain": round(fairness_gain, 6),
+                            "distance_gain": round(distance_gain, 4),
+                            "time_gain": round(time_gain, 4),
+                            "accepted": score_gain > 0,
+                        }
+
+                if best_trial is not None and best_score_gain > 0:
+                    current = best_trial
+                    current_eval = best_trial_eval
+                    logs.append(best_log)
+                else:
+                    # No improving transfer found. Try DEQ-guided one-for-one swap
+                    swap_best_trial = None
+                    swap_best_trial_eval = None
+                    swap_best_log = None
+                    swap_best_score_gain = 0.0
+
+                    n_reps = len(rep_perf)
+                    heavy_count = min(3, n_reps - 1)
+                    light_count = min(3, n_reps - 1)
+
+                    heavy_ids = [str(rep_perf.iloc[i]["rep_id"]) for i in range(heavy_count)]
+                    light_ids = [str(rep_perf.iloc[n_reps - 1 - j]["rep_id"]) for j in range(light_count)]
+
+                    tried_pairs = set()
+
+                    for heavy_rep in heavy_ids:
+                        for light_rep in light_ids:
+                            if heavy_rep == light_rep:
+                                continue
+                            if (heavy_rep, light_rep) in tried_pairs:
+                                continue
+                            tried_pairs.add((heavy_rep, light_rep))
+
+                            heavy_minutes = float(
+                                rep_perf.loc[rep_perf["rep_id"] == heavy_rep, "operational_minutes"].iloc[0]
+                            )
+                            light_minutes = float(
+                                rep_perf.loc[rep_perf["rep_id"] == light_rep, "operational_minutes"].iloc[0]
+                            )
+
+                            workload_gap = heavy_minutes - light_minutes
+                            if workload_gap < 5.0:
+                                continue
+
+                            heavy_idx_list, light_idx_list = swap_candidates(
+                                current,
+                                heavy_rep,
+                                light_rep,
+                                border_fraction,
+                            )
+
+                            for idx_h in heavy_idx_list:
+                                for idx_l in light_idx_list:
+                                    if idx_h == idx_l:
+                                        continue
+
+                                    trial = current.copy()
+
+                                    rep_h = str(trial.loc[idx_h, "rep_id"])
+                                    rep_l = str(trial.loc[idx_l, "rep_id"])
+
+                                    if rep_h == rep_l:
+                                        continue
+
+                                    trial.loc[idx_h, "rep_id"] = rep_l
+                                    trial.loc[idx_l, "rep_id"] = rep_h
+
+                                    trial_eval = evaluate_assignment(
+                                        trial,
+                                        speed_kmph,
+                                        service_min,
+                                        distance_matrix,
+                                    )
+
+                                    trial_score = objective_value(
+                                        trial_eval["fairness"],
+                                        trial_eval["total"]["distance_km"],
+                                        trial_eval["total"]["operational_minutes"],
+                                        fairness_weight,
+                                        distance_weight,
+                                        time_weight,
+                                    )
+
+                                    fairness_gain = trial_eval["fairness"] - current_eval["fairness"]
+                                    distance_gain = current_eval["total"]["distance_km"] - trial_eval["total"]["distance_km"]
+                                    time_gain = current_eval["total"]["operational_minutes"] - trial_eval["total"]["operational_minutes"]
+                                    score_gain = current_score - trial_score
+
+                                    # Keep the same safety guard logic
+                                    if distance_gain < -12.0:
+                                        continue
+                                    if distance_gain < -4.0 and fairness_gain < 0.06:
+                                        continue
+
+                                    if score_gain > swap_best_score_gain:
+                                        swap_best_score_gain = score_gain
+                                        swap_best_trial = trial
+                                        swap_best_trial_eval = trial_eval
+                                        swap_best_log = {
+                                            "iteration": iteration,
+                                            "move_type": "swap",
+                                            "moved_order": str(current.loc[idx_h, "order_id"]),
+                                            "swapped_with_order": str(current.loc[idx_l, "order_id"]),
+                                            "from_rep": heavy_rep,
+                                            "to_rep": light_rep,
+                                            "fairness_before": round(current_eval["fairness"], 6),
+                                            "fairness_after": round(trial_eval["fairness"], 6),
+                                            "distance_before": round(current_eval["total"]["distance_km"], 2),
+                                            "distance_after": round(trial_eval["total"]["distance_km"], 2),
+                                            "operational_before": round(current_eval["total"]["operational_minutes"], 2),
+                                            "operational_after": round(trial_eval["total"]["operational_minutes"], 2),
+                                            "score_before": round(current_score, 4),
+                                            "score_after": round(trial_score, 4),
+                                            "score_gain": round(score_gain, 4),
+                                            "fairness_gain": round(fairness_gain, 6),
+                                            "distance_gain": round(distance_gain, 4),
+                                            "time_gain": round(time_gain, 4),
+                                            "accepted": score_gain > 0,
+                                        }
+
+                    if swap_best_trial is not None and swap_best_score_gain > 0:
+                        current = swap_best_trial
+                        current_eval = swap_best_trial_eval
+                        logs.append(swap_best_log)
+                    else:
+                        logs.append({
+                            "iteration": iteration,
+                            "from_rep": heavy_rep,
+                            "to_rep": light_rep,
+                            "accepted": False,
+                            "reason": "no improving transfer or swap found",
+                        })
+                        break
     
-    print("accepted moves:", sum(1 for x in logs if x.get("accepted")))
-    print("enhancement logs:", logs)
-
     print("accepted moves:", sum(1 for x in logs if x.get("accepted")))
     print("enhancement logs:", logs)
 
