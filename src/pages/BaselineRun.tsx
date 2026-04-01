@@ -103,12 +103,12 @@ const BaselineRun: React.FC = () => {
   }, [run, depot]);
 
   const selectedStopOptions = useMemo(() => {
-  if (!selectedRoute) return [];
-  return selectedRoute.stops.map((stop) => ({
-    value: stop.nodeId,
-    label: `Stop ${stop.stopNumber} - ${stop.nodeName}`,
-  }));
-}, [selectedRoute]);
+    if (!selectedRoute) return [];
+    return selectedRoute.stops.map((stop) => ({
+      value: stop.nodeId,
+      label: `Stop ${stop.stopNumber} - ${stop.nodeName}`,
+    }));
+  }, [selectedRoute]);
 
   useEffect(() => {
     if (selectedRoute?.stops?.length) {
@@ -236,14 +236,7 @@ const BaselineRun: React.FC = () => {
                   }
                 />
 
-                <Input
-                  label="Random Seed"
-                  type="number"
-                  value={parameters.seed}
-                  onChange={(val) =>
-                    setParameters((prev) => ({ ...prev, seed: val }))
-                  }
-                />
+                {/* Random seed is kept internal for reproducibility and hidden from the UI */}
               </div>
 
               <Button
