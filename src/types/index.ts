@@ -29,6 +29,9 @@ export interface RouteStop {
   lon: number;
   orderId?: string;
   predictedEtaMin?: number;
+
+  // new: visual-only geometry from previous point to this stop
+  legPath?: Coordinate[];
 }
 
 export interface Route {
@@ -37,6 +40,9 @@ export interface Route {
   representativeName: string;
   stops: RouteStop[];
   color: string;
+
+  // new: visual-only geometry from last stop back to depot
+  returnPath?: Coordinate[];
 }
 
 export interface KPIMetrics {

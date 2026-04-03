@@ -44,6 +44,11 @@ function buildOffsetPolylinePoints(
   return stopPoints;
 }
 
+function toLatLng(path?: { lat: number; lon: number }[]): [number, number][] {
+  if (!path || path.length === 0) return [];
+  return path.map((p) => [p.lat, p.lon]);
+}
+
 export function MapCanvas({
   routes,
   depot,
@@ -82,28 +87,67 @@ export function MapCanvas({
           />
 
           {routes.map((route, routeIndex) => {
-            const polylinePoints = buildOffsetPolylinePoints(
+            const routeHasHighlightedStop =
+              (route.stops ?? []).some((stop) => highlightedNodes.includes(stop.nodeId));
+
+            const shouldEmphasize = !hasHighlightedStop || routeHasHighlightedStop;
+
+            const fallbackPolylinePoints = buildOffsetPolylinePoints(
               route,
               depot,
               routeIndex,
               routes.length
             );
 
-            const routeHasHighlightedStop =
-              (route.stops ?? []).some((stop) => highlightedNodes.includes(stop.nodeId));
+            const stopSegments = (route.stops ?? [])
+              .map((stop, idx) => ({
+                key: `${route.id}-leg-${idx}`,
+                positions: toLatLng(stop.legPath),
+              }))
+              .filter((seg) => seg.positions.length >= 2);
 
-            const shouldEmphasize = !hasHighlightedStop || routeHasHighlightedStop;
+            const returnSegment = toLatLng(route.returnPath);
+
+            if (stopSegments.length === 0) {
+              return (
+                <Polyline
+                  key={route.id}
+                  positions={fallbackPolylinePoints}
+                  pathOptions={{
+                    color: route.color,
+                    weight: shouldEmphasize ? 5 : 3,
+                    opacity: shouldEmphasize ? 0.9 : 0.35,
+                  }}
+                />
+              );
+            }
 
             return (
-              <Polyline
-                key={route.id}
-                positions={polylinePoints}
-                pathOptions={{
-                  color: route.color,
-                  weight: shouldEmphasize ? 5 : 3,
-                  opacity: shouldEmphasize ? 0.9 : 0.35,
-                }}
-              />
+              <React.Fragment key={route.id}>
+                {stopSegments.map((seg) => (
+                  <Polyline
+                    key={seg.key}
+                    positions={seg.positions}
+                    pathOptions={{
+                      color: route.color,
+                      weight: shouldEmphasize ? 5 : 3,
+                      opacity: shouldEmphasize ? 0.9 : 0.35,
+                    }}
+                  />
+                ))}
+
+                {returnSegment.length >= 2 && (
+                  <Polyline
+                    key={`${route.id}-return`}
+                    positions={returnSegment}
+                    pathOptions={{
+                      color: route.color,
+                      weight: shouldEmphasize ? 5 : 3,
+                      opacity: shouldEmphasize ? 0.9 : 0.35,
+                    }}
+                  />
+                )}
+              </React.Fragment>
             );
           })}
 
