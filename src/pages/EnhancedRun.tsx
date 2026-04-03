@@ -261,6 +261,7 @@ const EnhancedRun: React.FC = () => {
                       <input
                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                         value={parameters.fairnessWeight}
+                        readOnly
                         onChange={(e) =>
                           setParameters((prev) => ({
                             ...prev,
@@ -277,6 +278,7 @@ const EnhancedRun: React.FC = () => {
                       <input
                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                         value={parameters.distanceWeight}
+                        readOnly
                         onChange={(e) =>
                           setParameters((prev) => ({
                             ...prev,
@@ -293,6 +295,7 @@ const EnhancedRun: React.FC = () => {
                       <input
                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                         value={parameters.timeWeight}
+                        readOnly
                         onChange={(e) =>
                           setParameters((prev) => ({
                             ...prev,
@@ -310,6 +313,7 @@ const EnhancedRun: React.FC = () => {
                         <input
                           className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                           value={parameters.maxIterations}
+                          readOnly
                           onChange={(e) =>
                             setParameters((prev) => ({
                               ...prev,
@@ -326,6 +330,7 @@ const EnhancedRun: React.FC = () => {
                         <input
                           className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                           value={parameters.borderFraction}
+                          readOnly
                           onChange={(e) =>
                             setParameters((prev) => ({
                               ...prev,
