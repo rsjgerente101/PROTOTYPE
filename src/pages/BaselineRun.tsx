@@ -216,6 +216,7 @@ const BaselineRun: React.FC = () => {
                   onChange={(val) =>
                     setParameters((prev) => ({ ...prev, vehicles: val }))
                   }
+                  disabled
                 />
 
                 <Input
@@ -225,6 +226,7 @@ const BaselineRun: React.FC = () => {
                   onChange={(val) =>
                     setParameters((prev) => ({ ...prev, speed: val }))
                   }
+                  disabled
                 />
 
                 <Input
@@ -234,6 +236,7 @@ const BaselineRun: React.FC = () => {
                   onChange={(val) =>
                     setParameters((prev) => ({ ...prev, serviceMinutes: val }))
                   }
+                  disabled
                 />
 
                 {/* Random seed is kept internal for reproducibility and hidden from the UI */}
