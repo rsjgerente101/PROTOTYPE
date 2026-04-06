@@ -48,7 +48,7 @@ const BaselineRun: React.FC = () => {
   });
 
   const [showLabels, setShowLabels] = useState(true);
-  const [showRouteNumbers, setShowRouteNumbers] = useState(true);
+  const [showRouteNumbers, setShowRouteNumbers] = useState(false);
   const [selectedRouteId, setSelectedRouteId] = useState('');
   const [selectedStopNodeId, setSelectedStopNodeId] = useState('');
   const [showAllRoutes, setShowAllRoutes] = useState(false);

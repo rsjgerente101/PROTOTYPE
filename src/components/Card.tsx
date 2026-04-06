@@ -16,6 +16,6 @@ export function Card({
     lg: 'p-6'
   };
   return <div className={`bg-white rounded-lg shadow-sm border border-gray-200 ${paddingStyles[padding]} ${className}`}>
-      {children}
-    </div>;
+    {children}
+  </div>;
 }

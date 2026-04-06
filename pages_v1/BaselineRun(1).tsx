@@ -8,8 +8,8 @@ import { KPICard } from '../src/components/KPICard';
 import { MapCanvas } from '../src/components/MapCanvas';
 import { RouteTable } from '../src/components/RouteTable';
 import { MapIcon, ClockIcon, RouteIcon, UsersIcon, PlayIcon } from 'lucide-react';
-import { MOCK_DATASET, generateBaselineRun } from '../utils/mockData';
-import { AlgorithmRun } from '../src/types';
+import { MOCK_DATASET, generateBaselineRun } from '../utils/mockData.legacy';
+import { AlgorithmRun, Depot } from '../src/types';
 
 export function BaselineRun() {
   const navigate = useNavigate();
@@ -24,7 +24,7 @@ export function BaselineRun() {
   const [isRunning, setIsRunning] = useState(false);
   const [result, setResult] = useState<AlgorithmRun | null>(null);
   const [showLabels, setShowLabels] = useState(true);
-  const [showRouteNumbers, setShowRouteNumbers] = useState(true);
+  const [showRouteNumbers, setShowRouteNumbers] = useState(false);
   const [selectedRoute, setSelectedRoute] = useState<string | null>(null);
 
   const handleRun = () => {
@@ -60,7 +60,7 @@ export function BaselineRun() {
         </div>
 
         <div className="flex-1 flex overflow-hidden">
-          
+
           {/* Map */}
           <div className="flex-1 p-6 overflow-auto" style={{ minWidth: 0 }}>
             {result ? (
@@ -82,9 +82,9 @@ export function BaselineRun() {
             )}
           </div>
 
-          
+
           <div className="w-96 bg-white border-l border-gray-200 p-6 overflow-auto">
-            
+
             {/* Parameters */}
             <Card className="mb-6">
               <h2 className="text-sm font-semibold text-gray-900 mb-4">
@@ -107,9 +107,9 @@ export function BaselineRun() {
                   onChange={val =>
                     setParameters({ ...parameters, depot: val })
                   }
-                  options={MOCK_DATASET.depots.map(d => ({
+                  options={MOCK_DATASET.depots.map((d: Depot) => ({
                     value: d.id,
-                    label: d.name
+                    label: d.name ?? d.id
                   }))}
                 />
 
@@ -220,7 +220,7 @@ export function BaselineRun() {
 
                 {displayedRoute && (
                   <RouteTable
-                    stops={displayedRoute.stops}
+                    routes={[displayedRoute]}
                     title={`Route: ${displayedRoute.representativeName}`}
                   />
                 )}
