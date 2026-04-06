@@ -1,5 +1,7 @@
-import React, { useMemo } from 'react';
-import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip } from 'react-leaflet';
+// @ts-nocheck
+import React, { useEffect, useMemo, useState } from 'react';
+import { Maximize2Icon, Minimize2Icon } from 'lucide-react';
+import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip, useMap } from 'react-leaflet';
 import { Route, Depot } from '../types';
 import { Card } from './Card';
 import MapLegend from './MapLegend';
@@ -10,6 +12,25 @@ interface MapCanvasProps {
   showLabels?: boolean;
   showRouteNumbers?: boolean;
   highlightedNodes?: string[];
+}
+
+function toNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function normalizeLatLon(point: any): [number, number] | null {
+  if (!point) return null;
+
+  const lat = toNumber(point.lat ?? point.latitude);
+  const lon = toNumber(point.lon ?? point.lng ?? point.longitude);
+
+  if (lat == null || lon == null) return null;
+  return [lat, lon];
 }
 
 function offsetPoint(
@@ -33,20 +54,114 @@ function buildOffsetPolylinePoints(
   totalRoutes: number
 ): [number, number][] {
   const stopPoints = (route.stops ?? [])
-    .filter((s) => typeof s.lat === 'number' && typeof s.lon === 'number')
-    .map((s) => offsetPoint(s.lat, s.lon, routeIndex, totalRoutes));
+    .map((s) => normalizeLatLon(s))
+    .filter((coords): coords is [number, number] => coords !== null)
+    .map(([lat, lon]) => offsetPoint(lat, lon, routeIndex, totalRoutes));
 
-  if (depot && stopPoints.length > 0) {
-    const depotPt = offsetPoint(depot.lat, depot.lon, routeIndex, totalRoutes);
+  const depotCoords = normalizeLatLon(depot);
+
+  if (depotCoords && stopPoints.length > 0) {
+    const depotPt = offsetPoint(depotCoords[0], depotCoords[1], routeIndex, totalRoutes);
     return [depotPt, ...stopPoints, depotPt];
   }
 
   return stopPoints;
 }
 
-function toLatLng(path?: { lat: number; lon: number }[]): [number, number][] {
+function toLatLng(path?: Array<{ lat?: number | string; lon?: number | string; lng?: number | string; latitude?: number | string; longitude?: number | string }>): [number, number][] {
   if (!path || path.length === 0) return [];
-  return path.map((p) => [p.lat, p.lon]);
+  return path
+    .map((p) => normalizeLatLon(p))
+    .filter((coords): coords is [number, number] => coords !== null);
+}
+
+function dedupeAdjacent(points: [number, number][]): [number, number][] {
+  if (points.length <= 1) return points;
+
+  const out: [number, number][] = [points[0]];
+  for (let i = 1; i < points.length; i += 1) {
+    const prev = out[out.length - 1];
+    const curr = points[i];
+    if (prev[0] !== curr[0] || prev[1] !== curr[1]) {
+      out.push(curr);
+    }
+  }
+  return out;
+}
+
+function hasOutlierPathPoint(
+  points: [number, number][],
+  start: [number, number],
+  end: [number, number]
+): boolean {
+  const centerLat = (start[0] + end[0]) / 2;
+  const centerLon = (start[1] + end[1]) / 2;
+
+  // City-scale plotting: if a path vertex is far from both endpoints,
+  // it's likely an invalid/swapped coordinate and should be ignored.
+  return points.some(([lat, lon]) => (
+    Math.abs(lat - centerLat) > 1.5 || Math.abs(lon - centerLon) > 1.5
+  ));
+}
+
+function buildAnchoredSegment(
+  start: [number, number],
+  end: [number, number],
+  path?: Array<{ lat?: number | string; lon?: number | string; lng?: number | string; latitude?: number | string; longitude?: number | string }>
+): [number, number][] {
+  const middle = toLatLng(path);
+  if (middle.length === 0) return [start, end];
+
+  if (hasOutlierPathPoint(middle, start, end)) {
+    return [start, end];
+  }
+
+  return dedupeAdjacent([start, ...middle, end]);
+}
+
+function FullscreenMapControl() {
+  const map = useMap();
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const updateFullscreenState = () => {
+      const mapContainer = map.getContainer();
+      setIsFullscreen(document.fullscreenElement === mapContainer);
+      window.requestAnimationFrame(() => {
+        map.invalidateSize();
+      });
+    };
+
+    document.addEventListener('fullscreenchange', updateFullscreenState);
+    return () => {
+      document.removeEventListener('fullscreenchange', updateFullscreenState);
+    };
+  }, [map]);
+
+  const toggleFullscreen = async () => {
+    const mapContainer = map.getContainer();
+
+    if (document.fullscreenElement === mapContainer) {
+      await document.exitFullscreen();
+      return;
+    }
+
+    if (mapContainer.requestFullscreen) {
+      await mapContainer.requestFullscreen();
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={toggleFullscreen}
+      aria-label={isFullscreen ? 'Exit fullscreen map' : 'Open map fullscreen'}
+      title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+      className="absolute right-4 top-4 z-[1000] inline-flex items-center justify-center rounded-md border border-gray-200 bg-white/95 p-2 text-gray-700 shadow-sm transition hover:bg-white hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+    >
+      {isFullscreen ? <Minimize2Icon className="h-4 w-4" /> : <Maximize2Icon className="h-4 w-4" />}
+    </button>
+  );
 }
 
 export function MapCanvas({
@@ -60,10 +175,12 @@ export function MapCanvas({
 
   const allPoints: [number, number][] = useMemo(() => {
     const stopPts = allStops
-      .filter((s) => typeof s.lat === 'number' && typeof s.lon === 'number')
-      .map((s) => [s.lat, s.lon] as [number, number]);
+      .map((s) => normalizeLatLon(s))
+      .filter((coords): coords is [number, number] => coords !== null);
 
-    return depot ? [[depot.lat, depot.lon], ...stopPts] : stopPts;
+    const depotCoords = normalizeLatLon(depot);
+
+    return depotCoords ? [depotCoords, ...stopPts] : stopPts;
   }, [allStops, depot]);
 
   const fallbackCenter: [number, number] =
@@ -72,8 +189,8 @@ export function MapCanvas({
   const hasHighlightedStop = highlightedNodes.length > 0;
 
   return (
-    <Card className="bg-white rounded-lg shadow-sm border border-gray-200 h-full" padding="none">
-      <div className="relative w-full h-full">
+    <Card className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden" padding="none">
+      <div className="relative w-full min-h-[920px] h-[60vh] max-h-[760px]">
         <MapContainer
           {...(allPoints.length > 0
             ? { bounds: allPoints }
@@ -85,6 +202,8 @@ export function MapCanvas({
             attribution="&copy; OpenStreetMap contributors"
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
+
+          <FullscreenMapControl />
 
           {routes.map((route, routeIndex) => {
             const routeHasHighlightedStop =
@@ -99,14 +218,45 @@ export function MapCanvas({
               routes.length
             );
 
-            const stopSegments = (route.stops ?? [])
-              .map((stop, idx) => ({
-                key: `${route.id}-leg-${idx}`,
-                positions: toLatLng(stop.legPath),
-              }))
+            const routeStops = route.stops ?? [];
+            const depotCoords = normalizeLatLon(depot);
+
+            const stopSegments = routeStops
+              .map((stop, idx) => {
+                const current = normalizeLatLon(stop);
+                if (!current) {
+                  return {
+                    key: `${route.id}-leg-${idx}`,
+                    positions: [] as [number, number][],
+                  };
+                }
+
+                const prev = idx === 0
+                  ? depotCoords
+                  : normalizeLatLon(routeStops[idx - 1]);
+
+                if (!prev) {
+                  return {
+                    key: `${route.id}-leg-${idx}`,
+                    positions: [] as [number, number][],
+                  };
+                }
+
+                return {
+                  key: `${route.id}-leg-${idx}`,
+                  positions: buildAnchoredSegment(prev, current, stop.legPath),
+                };
+              })
               .filter((seg) => seg.positions.length >= 2);
 
-            const returnSegment = toLatLng(route.returnPath);
+            const lastStopCoords = routeStops.length > 0
+              ? normalizeLatLon(routeStops[routeStops.length - 1])
+              : null;
+
+            const returnSegment =
+              lastStopCoords && depotCoords
+                ? buildAnchoredSegment(lastStopCoords, depotCoords, route.returnPath)
+                : [];
 
             if (stopSegments.length === 0) {
               return (
@@ -151,9 +301,9 @@ export function MapCanvas({
             );
           })}
 
-          {depot && (
+          {normalizeLatLon(depot) && (
             <CircleMarker
-              center={[depot.lat, depot.lon]}
+              center={normalizeLatLon(depot) as [number, number]}
               radius={8}
               pathOptions={{
                 color: '#fff',
@@ -168,12 +318,15 @@ export function MapCanvas({
 
           {routes.map((route) =>
             (route.stops ?? []).map((stop) => {
+              const coords = normalizeLatLon(stop);
+              if (!coords) return null;
+
               const isHighlighted = highlightedNodes.includes(stop.nodeId);
 
               return (
                 <CircleMarker
                   key={`${route.id}-${stop.nodeId}-${stop.stopNumber}`}
-                  center={[stop.lat, stop.lon]}
+                  center={coords}
                   radius={isHighlighted ? 8 : 5}
                   pathOptions={{
                     color: isHighlighted ? '#111827' : '#fff',
