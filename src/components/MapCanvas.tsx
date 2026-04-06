@@ -141,13 +141,23 @@ function FullscreenMapControl() {
   const toggleFullscreen = async () => {
     const mapContainer = map.getContainer();
 
-    if (document.fullscreenElement === mapContainer) {
-      await document.exitFullscreen();
-      return;
-    }
+    try {
+      if (document.fullscreenElement === mapContainer) {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        }
+        return;
+      }
 
-    if (mapContainer.requestFullscreen) {
-      await mapContainer.requestFullscreen();
+      if (mapContainer.requestFullscreen) {
+        await mapContainer.requestFullscreen();
+      }
+    } catch (error) {
+      console.error('Failed to toggle fullscreen map mode.', error);
+      setIsFullscreen(document.fullscreenElement === mapContainer);
+      window.requestAnimationFrame(() => {
+        map.invalidateSize();
+      });
     }
   };
 
