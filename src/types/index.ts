@@ -47,6 +47,8 @@ export interface Route {
 
 export interface KPIMetrics {
   totalDistance: number;
+  // legacy / UI fields used across pages
+  totalTime: number;
   travelTime: number;
   operationalTime: number;
   computeTime: number;
@@ -54,6 +56,14 @@ export interface KPIMetrics {
   workloadBalance: number;
   coverage: number;
   scalability: number;
+
+  // additional fields referenced by pages_v1 mock data and components
+  numberOfStops: number;
+  delayScore: number;
+  ratingPenalty: number;
+  coverageRatio: number;
+  workloadBalanceIndex: number;
+  jainsFairnessIndex: number;
 }
 
 export interface Representative {
