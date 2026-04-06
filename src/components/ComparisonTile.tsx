@@ -2,7 +2,8 @@ import React from 'react';
 import { Card } from './Card';
 
 interface ComparisonTileProps {
-  label: string;
+  label?: string;
+  title?: string;
   baselineValue: number;
   enhancedValue: number;
   unit?: string;
@@ -11,11 +12,13 @@ interface ComparisonTileProps {
 
 export function ComparisonTile({
   label,
+  title,
   baselineValue,
   enhancedValue,
   unit = '',
   lowerIsBetter = false,
 }: ComparisonTileProps) {
+  const displayLabel = label ?? title ?? 'Metric';
   const safeBaseline = baselineValue === 0 ? 1 : baselineValue;
   const delta = ((enhancedValue - baselineValue) / safeBaseline) * 100;
   const isImprovement = lowerIsBetter ? delta < 0 : delta > 0;
@@ -24,7 +27,7 @@ export function ComparisonTile({
 
   return (
     <Card>
-      <h3 className="text-sm font-semibold text-gray-700 mb-4">{label}</h3>
+      <h3 className="text-sm font-semibold text-gray-700 mb-4">{displayLabel}</h3>
 
       <div className="grid grid-cols-2 gap-4 mb-3">
         <div>
