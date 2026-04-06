@@ -6,7 +6,7 @@ import { KPICard } from '../src/components/KPICard';
 import { MapCanvas } from '../src/components/MapCanvas';
 import { DequePanel } from '../src/components/DequePanel';
 import { PlayIcon } from 'lucide-react';
-import { MOCK_DATASET, generateEnhancedRun } from '../utils/mockData';
+import { MOCK_DATASET, generateEnhancedRun } from '../utils/mockData.legacy';
 import { AlgorithmRun, Representative } from '../src/types';
 
 export function EnhancedRun() {

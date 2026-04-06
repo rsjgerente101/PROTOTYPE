@@ -41,8 +41,8 @@ const EnhancedRun: React.FC = () => {
   });
 
   const [showLabels, setShowLabels] = useState(true);
-  const [showRouteNumbers, setShowRouteNumbers] = useState(true);
-  const [showAllRoutes, setShowAllRoutes] = useState(true);
+  const [showRouteNumbers, setShowRouteNumbers] = useState(false);
+  const [showAllRoutes, setShowAllRoutes] = useState(false);
   const [selectedRouteId, setSelectedRouteId] = useState('');
 
   useEffect(() => {
@@ -144,20 +144,20 @@ const EnhancedRun: React.FC = () => {
       const result = await runEnhanced(
         isAmazon
           ? {
-              datasetId: dataset.id,
-              baselineRunId: baselineSummary.id,
-              runProfile: 'amazon_expanded_search',
-            }
+            datasetId: dataset.id,
+            baselineRunId: baselineSummary.id,
+            runProfile: 'amazon_expanded_search',
+          }
           : {
-              datasetId: dataset.id,
-              baselineRunId: baselineSummary.id,
-              fairnessWeight: Number(parameters.fairnessWeight) || 0.45,
-              distanceWeight: Number(parameters.distanceWeight) || 0.30,
-              timeWeight: Number(parameters.timeWeight) || 0.25,
-              maxIterations: Number(parameters.maxIterations) || 20,
-              borderFraction: Number(parameters.borderFraction) || 0.35,
-              runProfile: 'default_balanced',
-            }
+            datasetId: dataset.id,
+            baselineRunId: baselineSummary.id,
+            fairnessWeight: Number(parameters.fairnessWeight) || 0.45,
+            distanceWeight: Number(parameters.distanceWeight) || 0.30,
+            timeWeight: Number(parameters.timeWeight) || 0.25,
+            maxIterations: Number(parameters.maxIterations) || 20,
+            borderFraction: Number(parameters.borderFraction) || 0.35,
+            runProfile: 'default_balanced',
+          }
       );
 
       const summary: StoredRunSummary = {
