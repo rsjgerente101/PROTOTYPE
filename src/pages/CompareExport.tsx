@@ -39,9 +39,9 @@ const CompareExport: React.FC = () => {
         lowerIsBetter: true,
       },
       {
-        label: 'Travel Time (min)',
-        baseline: baselineRun.kpis.travelTime,
-        enhanced: enhancedRun.kpis.travelTime,
+        label: 'Travel Time (hr)',
+        baseline: baselineRun.kpis.travelTime / 60,
+        enhanced: enhancedRun.kpis.travelTime / 60,
         lowerIsBetter: true,
       },
       {
