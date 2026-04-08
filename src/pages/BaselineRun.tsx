@@ -271,7 +271,7 @@ const BaselineRun: React.FC = () => {
 
                   <div className="space-y-3">
                     <KPICard title="Total Distance" value={run.kpis.totalDistance} unit="km" icon={<RouteIcon className="w-5 h-5" />} />
-                    <KPICard title="Travel Time" value={run.kpis.travelTime} unit="min" icon={<ClockIcon className="w-5 h-5" />} />
+                    <KPICard title="Travel Time" value={Number((run.kpis.travelTime / 60).toFixed(2))} unit="hr" icon={<ClockIcon className="w-5 h-5" />} />
                     <KPICard title="Operational Time" value={run.kpis.operationalTime} unit="min" />
                     <KPICard title="Fairness" value={run.kpis.fairness} icon={<UsersIcon className="w-5 h-5" />} />
                   </div>
