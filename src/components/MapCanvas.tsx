@@ -200,7 +200,7 @@ export function MapCanvas({
 
   return (
     <Card className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden" padding="none">
-      <div className="relative w-full min-h-[920px] h-[60vh]">
+      <div className="relative w-full min-h-[700px] h-[60vh]">
         <MapContainer
           {...(allPoints.length > 0
             ? { bounds: allPoints }
@@ -347,7 +347,7 @@ export function MapCanvas({
                 >
                   {showLabels && (
                     <Tooltip direction="top" offset={[0, -5]} permanent>
-                      {stop.nodeName}
+                      {`${stop.nodeName} - ${route.representativeName}`}
                     </Tooltip>
                   )}
 
