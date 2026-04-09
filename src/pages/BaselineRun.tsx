@@ -302,7 +302,7 @@ const BaselineRun: React.FC = () => {
                         checked={showLabels}
                         onChange={(e) => setShowLabels(e.target.checked)}
                       />
-                      Show Customer Labels
+                      Show Customer Labels and assigned reps
                     </label>
 
                     <label className="flex items-center gap-2 text-sm text-gray-700">
