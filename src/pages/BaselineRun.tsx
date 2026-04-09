@@ -183,13 +183,26 @@ const BaselineRun: React.FC = () => {
         <div className="flex-1 flex overflow-hidden">
           <div className="flex-1 p-6 overflow-auto" style={{ minWidth: 0 }}>
             {run ? (
-              <MapCanvas
-                routes={selectedRoutesForDisplay}
-                depot={displayDepot}
-                showLabels={showLabels}
-                showRouteNumbers={showRouteNumbers}
-                highlightedNodes={selectedStopNodeId ? [selectedStopNodeId] : []}
-              />
+              <>
+                <MapCanvas
+                  routes={selectedRoutesForDisplay}
+                  depot={displayDepot}
+                  showLabels={showLabels}
+                  showRouteNumbers={showRouteNumbers}
+                  highlightedNodes={selectedStopNodeId ? [selectedStopNodeId] : []}
+                />
+
+                <div className="mt-6">
+                  <RouteTable
+                    routes={selectedRoute ? [selectedRoute] : []}
+                    title={
+                      selectedRoute
+                        ? `Route: ${selectedRoute.representativeName}`
+                        : 'Selected Route'
+                    }
+                  />
+                </div>
+              </>
             ) : (
               <Card className="h-full flex items-center justify-center">
                 <div className="text-center">
@@ -332,15 +345,6 @@ const BaselineRun: React.FC = () => {
                     options={selectedStopOptions}
                   />
                 </div>
-
-                <RouteTable
-                  routes={selectedRoute ? [selectedRoute] : []}
-                  title={
-                    selectedRoute
-                      ? `Route: ${selectedRoute.representativeName}`
-                      : 'Selected Route'
-                  }
-                />
 
                 <Button
                   onClick={() => navigate('/enhanced')}
