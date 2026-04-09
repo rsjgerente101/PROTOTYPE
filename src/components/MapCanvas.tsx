@@ -12,6 +12,7 @@ interface MapCanvasProps {
   showLabels?: boolean;
   showRouteNumbers?: boolean;
   highlightedNodes?: string[];
+  onMapReady?: () => void;
 }
 
 function toNumber(value: unknown): number | null {
@@ -180,6 +181,7 @@ export function MapCanvas({
   showLabels = true,
   showRouteNumbers = true,
   highlightedNodes = [],
+  onMapReady,
 }: MapCanvasProps) {
   const allStops = routes.flatMap((r) => r.stops ?? []);
 
@@ -214,6 +216,11 @@ export function MapCanvas({
           />
 
           <FullscreenMapControl />
+
+          {onMapReady && (
+            // child component uses useMap() which must be inside MapContainer
+            <MapReadyNotifier onMapReady={onMapReady} />
+          )}
 
           {routes.map((route, routeIndex) => {
             const routeHasHighlightedStop =
@@ -368,4 +375,23 @@ export function MapCanvas({
       </div>
     </Card>
   );
+}
+
+function MapReadyNotifier({ onMapReady }: { onMapReady?: () => void }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!onMapReady || !map) return;
+
+    try {
+      map.whenReady(() => {
+        onMapReady();
+      });
+    } catch (err) {
+      // fallback: call onMapReady once if whenReady isn't available
+      onMapReady();
+    }
+  }, [map, onMapReady]);
+
+  return null;
 }
