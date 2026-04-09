@@ -347,7 +347,7 @@ export function MapCanvas({
                 >
                   {showLabels && (
                     <Tooltip direction="top" offset={[0, -5]} permanent>
-                      {stop.nodeName}
+                      {`${stop.nodeName} - ${route.representativeName}`}
                     </Tooltip>
                   )}
 
