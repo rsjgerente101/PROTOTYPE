@@ -65,7 +65,8 @@ export function DequePanel({ representatives, onUpdate }: DequePanelProps) {
             </div>
 
             <RepresentativeCard representative={rep} isDraggable={!!onUpdate} />
-
+            
+            {/*
             <div className="flex gap-2 mt-2">
               <Button
                 size="sm"
@@ -89,6 +90,7 @@ export function DequePanel({ representatives, onUpdate }: DequePanelProps) {
                 <ArrowRightIcon className="w-3 h-3" />
               </Button>
             </div>
+            */}
           </div>
         ))}
       </div>
