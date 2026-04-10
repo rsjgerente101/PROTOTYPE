@@ -57,9 +57,9 @@ const CompareExport: React.FC = () => {
         lowerIsBetter: false,
       },
       {
-        label: 'Workload Balance',
-        baseline: baselineRun.kpis.workloadBalance,
-        enhanced: enhancedRun.kpis.workloadBalance,
+        label: 'Workload Balance (%)',
+        baseline: Math.round(baselineRun.kpis.workloadBalance * 100),
+        enhanced: Math.round(enhancedRun.kpis.workloadBalance * 100),
         lowerIsBetter: false,
       },
       {
@@ -80,7 +80,7 @@ const CompareExport: React.FC = () => {
       ['Travel Time (min)', baselineRun.kpis.travelTime, enhancedRun.kpis.travelTime],
       ['Operational Time (min)', baselineRun.kpis.operationalTime, enhancedRun.kpis.operationalTime],
       ['Fairness', baselineRun.kpis.fairness, enhancedRun.kpis.fairness],
-      ['Workload Balance', baselineRun.kpis.workloadBalance, enhancedRun.kpis.workloadBalance],
+      ['Workload Balance (%)',  Math.round(baselineRun.kpis.workloadBalance * 100), Math.round(enhancedRun.kpis.workloadBalance * 100),],
       ['Scalability', baselineRun.kpis.scalability, enhancedRun.kpis.scalability],
     ];
 
