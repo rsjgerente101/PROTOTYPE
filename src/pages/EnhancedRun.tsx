@@ -403,9 +403,9 @@ const EnhancedRun: React.FC = () => {
                       />
                       <ComparisonTile
                         label="Operational Time"
-                        baselineValue={baselineSummary.kpis.operationalTime}
-                        enhancedValue={enhancedRun.kpis.operationalTime}
-                        unit=" min"
+                        baselineValue={baselineSummary.kpis.operationalTime / 60}
+                        enhancedValue={enhancedRun.kpis.operationalTime / 60}
+                        unit=" hr"
                         lowerIsBetter
                       />
                       <ComparisonTile
@@ -494,7 +494,7 @@ const EnhancedRun: React.FC = () => {
                     <div className="rounded-lg bg-slate-50 p-3">
                       <p className="text-xs text-gray-500">Operational Time</p>
                       <p className="text-lg font-semibold text-gray-900">
-                        {enhancedRun.kpis.operationalTime.toFixed(2)} min
+                        {(enhancedRun.kpis.operationalTime / 60).toFixed(2)} hr
                       </p>
                     </div>
                     <div className="rounded-lg bg-slate-50 p-3">

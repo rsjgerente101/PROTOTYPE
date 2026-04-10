@@ -45,9 +45,9 @@ const CompareExport: React.FC = () => {
         lowerIsBetter: true,
       },
       {
-        label: 'Operational Time (min)',
-        baseline: baselineRun.kpis.operationalTime,
-        enhanced: enhancedRun.kpis.operationalTime,
+        label: 'Operational Time (hr)',
+        baseline: baselineRun.kpis.operationalTime / 60,
+        enhanced: enhancedRun.kpis.operationalTime / 60,
         lowerIsBetter: true,
       },
       {
