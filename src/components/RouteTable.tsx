@@ -36,7 +36,7 @@ export function RouteTable({ routes, title }: RouteTableProps) {
                 Stop
               </th>
               <th className="px-4 py-2 text-left font-medium text-gray-700">
-                Node
+                Customer
               </th>
               <th className="px-4 py-2 text-left font-medium text-gray-700">
                 Order ID
@@ -48,7 +48,7 @@ export function RouteTable({ routes, title }: RouteTableProps) {
                 Cumulative (km)
               </th>
               <th className="px-4 py-2 text-right font-medium text-gray-700">
-                ETA Proxy (min)
+                ETA Proxy (hr)
               </th>
             </tr>
           </thead>

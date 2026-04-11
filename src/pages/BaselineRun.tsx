@@ -5,6 +5,7 @@ import {
   ClockIcon,
   MapIcon,
   PlayIcon,
+  PlusIcon,
   RouteIcon,
   UsersIcon,
 } from 'lucide-react';
@@ -14,6 +15,7 @@ import { Card } from '../components/Card';
 import { Input } from '../components/Input';
 import { KPICard } from '../components/KPICard';
 import { MapCanvas } from '../components/MapCanvas';
+import AddCustomerModal from '../components/AddCustomerModal';
 import { RouteTable } from '../components/RouteTable';
 import { Select } from '../components/Select';
 
@@ -49,6 +51,8 @@ const BaselineRun: React.FC = () => {
 
   const [showLabels, setShowLabels] = useState(true);
   const [showRouteNumbers, setShowRouteNumbers] = useState(false);
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
   const [selectedRouteId, setSelectedRouteId] = useState('');
   const [selectedStopNodeId, setSelectedStopNodeId] = useState('');
   const [showAllRoutes, setShowAllRoutes] = useState(false);
@@ -152,6 +156,7 @@ const BaselineRun: React.FC = () => {
       setRun(result);
       setSelectedRouteId(result.routes[0]?.id ?? '');
       setMessage('Baseline run completed.');
+      setMapLoaded(false);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Baseline run failed.');
     } finally {
@@ -190,6 +195,7 @@ const BaselineRun: React.FC = () => {
                   showLabels={showLabels}
                   showRouteNumbers={showRouteNumbers}
                   highlightedNodes={selectedStopNodeId ? [selectedStopNodeId] : []}
+                  onMapReady={() => setMapLoaded(true)}
                 />
 
                 <div className="mt-6">
@@ -269,6 +275,30 @@ const BaselineRun: React.FC = () => {
                   </>
                 )}
               </Button>
+
+              {mapLoaded && (
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowAddModal(true)}
+                    className="w-full mt-3 flex items-center justify-center gap-2"
+                  >
+                    <PlusIcon className="w-4 h-4" />
+                    <span>Add Customer</span>
+                  </Button>
+
+                  <AddCustomerModal
+                    isOpen={showAddModal}
+                    onClose={() => setShowAddModal(false)}
+                    depot={displayDepot}
+                    onConfirm={(customers) => {
+                      // UI-only: preview customers locally and close modal
+                      setMessage(`Prepared ${customers.length} customer(s) for preview.`);
+                      setShowAddModal(false);
+                    }}
+                  />
+                </>
+              )}
 
               {message && (
                 <div className="mt-3 text-sm text-slate-700">{message}</div>
