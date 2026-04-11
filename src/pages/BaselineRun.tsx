@@ -15,6 +15,7 @@ import { Card } from '../components/Card';
 import { Input } from '../components/Input';
 import { KPICard } from '../components/KPICard';
 import { MapCanvas } from '../components/MapCanvas';
+import AddCustomerModal from '../components/AddCustomerModal';
 import { RouteTable } from '../components/RouteTable';
 import { Select } from '../components/Select';
 
@@ -51,6 +52,7 @@ const BaselineRun: React.FC = () => {
   const [showLabels, setShowLabels] = useState(true);
   const [showRouteNumbers, setShowRouteNumbers] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
   const [selectedRouteId, setSelectedRouteId] = useState('');
   const [selectedStopNodeId, setSelectedStopNodeId] = useState('');
   const [showAllRoutes, setShowAllRoutes] = useState(false);
@@ -275,14 +277,27 @@ const BaselineRun: React.FC = () => {
               </Button>
 
               {mapLoaded && (
-                <Button
-                  variant="outline"
-                  onClick={() => setMessage('Add customer UI not implemented.')}
-                  className="w-full mt-3 flex items-center justify-center gap-2"
-                >
-                  <PlusIcon className="w-4 h-4" />
-                  <span>Add Customer</span>
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowAddModal(true)}
+                    className="w-full mt-3 flex items-center justify-center gap-2"
+                  >
+                    <PlusIcon className="w-4 h-4" />
+                    <span>Add Customer</span>
+                  </Button>
+
+                  <AddCustomerModal
+                    isOpen={showAddModal}
+                    onClose={() => setShowAddModal(false)}
+                    depot={displayDepot}
+                    onConfirm={(customers) => {
+                      // UI-only: preview customers locally and close modal
+                      setMessage(`Prepared ${customers.length} customer(s) for preview.`);
+                      setShowAddModal(false);
+                    }}
+                  />
+                </>
               )}
 
               {message && (
