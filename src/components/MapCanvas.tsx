@@ -202,7 +202,7 @@ export function MapCanvas({
 
   return (
     <Card className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden" padding="none">
-      <div className="relative w-full min-h-[700px] h-[60vh]">
+      <div className="relative w-full min-h-[820px] h-[60vh]">
         <MapContainer
           {...(allPoints.length > 0
             ? { bounds: allPoints }
