@@ -4,7 +4,7 @@ import { Card } from '../src/components/Card';
 import { Button } from '../src/components/Button';
 import { Select } from '../src/components/Select';
 import { UploadIcon, CheckCircleIcon, AlertCircleIcon, ArrowLeftIcon } from 'lucide-react';
-import { MOCK_DATASET } from '../utils/mockData';
+import { MOCK_DATASET } from '../utils/mockData.legacy';
 
 export function DatasetUpload() {
   const navigate = useNavigate();
@@ -133,7 +133,7 @@ export function DatasetUpload() {
                   />
                 </div>
                 <Select
-                  label="Customer ID"
+                  label="Agent ID"
                   value={fieldMapping.customer_id}
                   onChange={(val) =>
                     setFieldMapping({ ...fieldMapping, customer_id: val })
