@@ -20,7 +20,7 @@ const FIELD_OPTIONS = [
   { label: 'Depot ID', value: 'depot_id' },
   { label: 'Depot Latitude', value: 'depot_lat' },
   { label: 'Depot Longitude', value: 'depot_lon' },
-  { label: 'Customer ID', value: 'customer_id' },
+  { label: 'Agent ID', value: 'customer_id' },
   { label: 'Customer Latitude', value: 'customer_lat' },
   { label: 'Customer Longitude', value: 'customer_lon' },
   { label: 'Order ID', value: 'order_id' },
@@ -238,18 +238,19 @@ const DatasetUpload: React.FC = () => {
   const selectOptions =
     csvHeaders.length > 0
       ? [
-          { label: 'Select column', value: '' },
-          ...csvHeaders.map((header) => ({
-            label: header,
-            value: header,
-          })),
-        ]
+        { label: 'Select column', value: '' },
+        ...csvHeaders.map((header) => ({
+          label: header,
+          value: header,
+        })),
+      ]
       : [{ label: 'Upload file first', value: '' }];
 
   return (
     <div className="space-y-6">
-      <Card title="Dataset Upload">
+      <Card>
         <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">Dataset Upload</h2>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">
               Upload CSV
@@ -304,7 +305,7 @@ const DatasetUpload: React.FC = () => {
               <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
                 <div><strong>Depot Latitude:</strong> {mapping.depot_lat}</div>
                 <div><strong>Depot Longitude:</strong> {mapping.depot_lon}</div>
-                <div><strong>Customer ID:</strong> {mapping.customer_id}</div>
+                <div><strong>Agent ID:</strong> {mapping.customer_id}</div>
                 <div><strong>Customer Latitude:</strong> {mapping.customer_lat}</div>
                 <div><strong>Customer Longitude:</strong> {mapping.customer_lon}</div>
                 {mapping.order_id && <div><strong>Order ID:</strong> {mapping.order_id}</div>}
