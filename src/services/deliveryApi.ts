@@ -7,9 +7,11 @@ export type FieldMapping = {
   depot_lat: string;
   depot_lon: string;
   customer_id: string;
+  agent_id?: string;
   customer_lat: string;
   customer_lon: string;
   order_id?: string;
+  order_date_col?: string;
   eta_col?: string;
   rating_col?: string;
   area_col?: string;
@@ -101,6 +103,38 @@ export async function runBaseline(params: BaselineRunRequest): Promise<Algorithm
   return parseJson<AlgorithmRun>(res);
 }
 
+export type AddedCustomerPayload = {
+  label: string;
+  lat: number;
+  lon: number;
+  address?: string;
+  assignedRep?: string;
+  customerNumber?: number;
+};
+
+export async function addCustomersToBaseline(
+  baselineRunId: string,
+  customers: AddedCustomerPayload[]
+): Promise<AlgorithmRun> {
+  const res = await fetch(`${API_BASE}/api/runs/baseline/add-customers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      baseline_run_id: baselineRunId,
+      customers: customers.map((c) => ({
+        label: c.label,
+        lat: c.lat,
+        lon: c.lon,
+        address: c.address,
+        assigned_rep: c.assignedRep,
+        customer_number: c.customerNumber,
+      })),
+    }),
+  });
+
+  return parseJson<AlgorithmRun>(res);
+}
+
 export async function runEnhanced(params: EnhancedRunRequest): Promise<AlgorithmRun> {
   const res = await fetch(`${API_BASE}/api/runs/enhanced`, {
     method: 'POST',
@@ -108,9 +142,8 @@ export async function runEnhanced(params: EnhancedRunRequest): Promise<Algorithm
     body: JSON.stringify({
       dataset_id: params.datasetId,
       baseline_run_id: params.baselineRunId,
-      fairness_weight: params.fairnessWeight,
-      distance_weight: params.distanceWeight,
-      time_weight: params.timeWeight,
+      alpha_weight: params.alphaWeight,
+      beta_weight: params.betaWeight,
       max_iterations: params.maxIterations,
       border_fraction: params.borderFraction,
       run_profile: params.runProfile,
