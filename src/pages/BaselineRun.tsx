@@ -15,12 +15,12 @@ import { Card } from '../components/Card';
 import { Input } from '../components/Input';
 import { KPICard } from '../components/KPICard';
 import { MapCanvas } from '../components/MapCanvas';
-import AddCustomerModal from '../components/AddCustomerModal';
+import AddCustomerModal, { type AddCustomer } from '../components/AddCustomerModal';
 import { RouteTable } from '../components/RouteTable';
 import { Select } from '../components/Select';
 
-import type { AlgorithmRun, Dataset, Depot, Route } from '../types';
-import { getDatasetMeta, runBaseline } from '../services/deliveryApi';
+import type { AddedCustomer, AlgorithmRun, Dataset, Depot, Route } from '../types';
+import { addCustomersToBaseline, getDatasetMeta, runBaseline } from '../services/deliveryApi';
 
 type StoredRunSummary = {
   id: string;
@@ -33,6 +33,78 @@ type StoredRunSummary = {
 const BASELINE_STORAGE_KEY = 'baselineRunSummary';
 const DATASET_STORAGE_KEY = 'uploadedDatasetFileMeta';
 
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRad = (v: number) => (v * Math.PI) / 180;
+  const R = 6371;
+
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function extractCustomerNumber(name: string): number | null {
+  const match = name.match(/Customer\s+(\d+)/i);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getNextCustomerNumber(
+  run: AlgorithmRun | null,
+  addedCustomers: AddedCustomer[]
+): number {
+  let maxNumber = 0;
+
+  if (run) {
+    for (const route of run.routes) {
+      for (const stop of route.stops) {
+        const n = extractCustomerNumber(stop.nodeName);
+        if (n != null && n > maxNumber) maxNumber = n;
+      }
+    }
+  }
+
+  for (const customer of addedCustomers) {
+    if (customer.customerNumber && customer.customerNumber > maxNumber) {
+      maxNumber = customer.customerNumber;
+    } else {
+      const n = extractCustomerNumber(customer.label);
+      if (n != null && n > maxNumber) maxNumber = n;
+    }
+  }
+
+  return maxNumber + 1;
+}
+
+function findNearestRepresentative(
+  run: AlgorithmRun,
+  lat: number,
+  lon: number
+): string {
+  let bestRep = run.routes[0]?.representativeName ?? 'UNASSIGNED';
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (const route of run.routes) {
+    for (const stop of route.stops) {
+      const d = haversineKm(lat, lon, stop.lat, stop.lon);
+      if (d < bestDistance) {
+        bestDistance = d;
+        bestRep = route.representativeName;
+      }
+    }
+  }
+
+  return bestRep;
+}
+
 const BaselineRun: React.FC = () => {
   const navigate = useNavigate();
 
@@ -43,11 +115,12 @@ const BaselineRun: React.FC = () => {
   const [message, setMessage] = useState('');
 
   const [parameters, setParameters] = useState({
-    vehicles: '4',
-    speed: '18.75',
+    speed: '40',
     serviceMinutes: '8',
     seed: '42',
   });
+
+  const [addedCustomers, setAddedCustomers] = useState<AddedCustomer[]>([]);
 
   const [showLabels, setShowLabels] = useState(true);
   const [showRouteNumbers, setShowRouteNumbers] = useState(false);
@@ -132,16 +205,22 @@ const BaselineRun: React.FC = () => {
       setBusy(true);
       setMessage('Running baseline experiment on backend...');
 
+      const clampedReps = 10;
+
+      setAddedCustomers([]);
+
       const result = await runBaseline({
         datasetId: dataset.id,
-        numRepresentatives: Number(parameters.vehicles) || 4,
+        numRepresentatives: clampedReps,
         avgSpeedKmph: Number(parameters.speed) || 18.75,
         serviceMinutesPerStop: Number(parameters.serviceMinutes) || 8,
         seed: Number(parameters.seed) || 42,
         runProfile:
           dataset.datasetRole === 'primary_reconstruction'
             ? 'amazon_expanded_search'
-            : 'default_balanced',
+            : dataset.datasetRole === 'comparative_template'
+              ? 'zomato_expanded_search'
+              : 'default_balanced',
       });
 
       const summary: StoredRunSummary = {
@@ -196,6 +275,7 @@ const BaselineRun: React.FC = () => {
                   showRouteNumbers={showRouteNumbers}
                   highlightedNodes={selectedStopNodeId ? [selectedStopNodeId] : []}
                   onMapReady={() => setMapLoaded(true)}
+                  addedCustomers={addedCustomers}
                 />
 
                 <div className="mt-6">
@@ -228,15 +308,16 @@ const BaselineRun: React.FC = () => {
               </h2>
 
               <div className="space-y-3">
-                <Input
-                  label="Number of Vehicles"
-                  type="number"
-                  value={parameters.vehicles}
-                  onChange={(val) =>
-                    setParameters((prev) => ({ ...prev, vehicles: val }))
-                  }
-                  disabled
-                />
+                <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2">
+                  <div className="text-xs text-gray-500">Depot</div>
+                  <div className="text-sm font-medium text-gray-900">
+                    {dataset?.datasetRole === 'primary_reconstruction'
+                      ? 'DEPOT-130'
+                      : dataset?.datasetRole === 'comparative_template'
+                        ? 'DEPOT-153'
+                        : 'Automatic'}
+                  </div>
+                </div>
 
                 <Input
                   label="Average Speed (km/h)"
@@ -245,7 +326,6 @@ const BaselineRun: React.FC = () => {
                   onChange={(val) =>
                     setParameters((prev) => ({ ...prev, speed: val }))
                   }
-                  disabled
                 />
 
                 <Input
@@ -255,7 +335,6 @@ const BaselineRun: React.FC = () => {
                   onChange={(val) =>
                     setParameters((prev) => ({ ...prev, serviceMinutes: val }))
                   }
-                  disabled
                 />
 
                 {/* Random seed is kept internal for reproducibility and hidden from the UI */}
@@ -291,10 +370,63 @@ const BaselineRun: React.FC = () => {
                     isOpen={showAddModal}
                     onClose={() => setShowAddModal(false)}
                     depot={displayDepot}
-                    onConfirm={(customers) => {
-                      // UI-only: preview customers locally and close modal
-                      setMessage(`Prepared ${customers.length} customer(s) for preview.`);
-                      setShowAddModal(false);
+                    onConfirm={async (customers: AddCustomer[]) => {
+                      if (!run) {
+                        setMessage('Run the baseline first before adding customers.');
+                        setShowAddModal(false);
+                        return;
+                      }
+
+                      const currentRun = run;
+                      const existingAdded = addedCustomers;
+
+                      let nextNumber = getNextCustomerNumber(currentRun, existingAdded);
+
+                      const normalized: AddedCustomer[] = customers
+                        .filter((c) => c.lat != null && c.lon != null)
+                        .map((c, idx) => {
+                          const lat = Number(c.lat);
+                          const lon = Number(c.lon);
+                          const assignedRep = findNearestRepresentative(currentRun, lat, lon);
+                          const customerNumber = nextNumber++;
+
+                          return {
+                            id: `ADDED-${Date.now()}-${idx}`,
+                            customerNumber,
+                            assignedRep,
+                            label: `Customer ${customerNumber} - ${assignedRep}`,
+                            lat,
+                            lon,
+                            address: c.address,
+                          };
+                        });
+
+                      try {
+                        setBusy(true);
+                        setMessage(`Adding ${normalized.length} customer(s) and rerouting baseline...`);
+
+                        const updatedRun = await addCustomersToBaseline(currentRun.id, normalized);
+
+                        const summary: StoredRunSummary = {
+                          id: updatedRun.id,
+                          algorithm: updatedRun.algorithm,
+                          datasetId: updatedRun.datasetId,
+                          kpis: updatedRun.kpis,
+                          representatives: updatedRun.representatives,
+                        };
+
+                        localStorage.setItem(BASELINE_STORAGE_KEY, JSON.stringify(summary));
+                        setAddedCustomers([]);
+                        setRun(updatedRun);
+                        setSelectedRouteId(updatedRun.routes[0]?.id ?? '');
+                        setMessage(`Added ${normalized.length} customer(s) and updated baseline routes.`);
+                        setShowAddModal(false);
+                        setMapLoaded(false);
+                      } catch (err) {
+                        setMessage(err instanceof Error ? err.message : 'Failed to add customers to baseline.');
+                      } finally {
+                        setBusy(false);
+                      }
                     }}
                   />
                 </>
@@ -314,8 +446,8 @@ const BaselineRun: React.FC = () => {
 
                   <div className="space-y-3">
                     <KPICard title="Total Distance" value={run.kpis.totalDistance} unit="km" icon={<RouteIcon className="w-5 h-5" />} />
-                    <KPICard title="Travel Time" value={Number((run.kpis.travelTime / 60).toFixed(2))} unit="hr" icon={<ClockIcon className="w-5 h-5" />} />
-                    <KPICard title="Operational Time" value={Number((run.kpis.operationalTime / 60).toFixed(2))} unit="hr" icon={<ClockIcon className="w-5 h-5" />} />
+                    <KPICard title="Travel Time" value={run.kpis.travelTime} unit="hr" icon={<ClockIcon className="w-5 h-5" />} />
+                    <KPICard title="Operational Time" value={run.kpis.operationalTime} unit="hr" icon={<ClockIcon className="w-5 h-5" />} />
                     <KPICard title="Fairness" value={run.kpis.fairness} icon={<UsersIcon className="w-5 h-5" />} />
                   </div>
                 </div>
@@ -355,6 +487,27 @@ const BaselineRun: React.FC = () => {
                   </div>
                 </div>
 
+                {addedCustomers.length > 0 && (
+                  <Card className="mt-6">
+                    <h2 className="text-sm font-semibold text-gray-900 mb-3">
+                      Added Customers Preview
+                    </h2>
+                    <div className="space-y-2 text-sm text-gray-700">
+                      {addedCustomers.map((customer) => (
+                        <div key={customer.id} className="rounded border border-gray-200 p-2">
+                          <div className="font-medium">{customer.label}</div>
+                          {customer.assignedRep && <div>Rep: {customer.assignedRep}</div>}
+                          <div>Lat: {customer.lat.toFixed(6)}</div>
+                          <div>Lon: {customer.lon.toFixed(6)}</div>
+                          {customer.address && (
+                            <div className="text-xs text-gray-500 mt-1">{customer.address}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                )}
+                
                 <div className="mb-6">
                   <Select
                     label="Select Route"
