@@ -33,21 +33,21 @@ const CompareExport: React.FC = () => {
 
     return [
       {
-        label: 'Total Distance (km)',
-        baseline: baselineRun.kpis.totalDistance,
-        enhanced: enhancedRun.kpis.totalDistance,
+        label: 'Average Total Distance (km)',
+        baseline: baselineRun.kpis.avgTotalDistance,
+        enhanced: enhancedRun.kpis.avgTotalDistance,
         lowerIsBetter: true,
       },
       {
-        label: 'Travel Time (hr)',
-        baseline: baselineRun.kpis.travelTime / 60,
-        enhanced: enhancedRun.kpis.travelTime / 60,
+        label: 'Average Travel Time (hr)',
+        baseline: baselineRun.kpis.avgTravelTime,
+        enhanced: enhancedRun.kpis.avgTravelTime,
         lowerIsBetter: true,
       },
       {
         label: 'Operational Time (hr)',
-        baseline: baselineRun.kpis.operationalTime / 60,
-        enhanced: enhancedRun.kpis.operationalTime / 60,
+        baseline: baselineRun.kpis.operationalTime,
+        enhanced: enhancedRun.kpis.operationalTime,
         lowerIsBetter: true,
       },
       {
@@ -58,14 +58,14 @@ const CompareExport: React.FC = () => {
       },
       {
         label: 'Workload Balance (%)',
-        baseline: Math.round(baselineRun.kpis.workloadBalance * 100),
-        enhanced: Math.round(enhancedRun.kpis.workloadBalance * 100),
-        lowerIsBetter: false,
+        baseline: baselineRun.kpis.workloadBalance,
+        enhanced: enhancedRun.kpis.workloadBalance,
+        lowerIsBetter: true,
       },
       {
-        label: 'Scalability',
-        baseline: baselineRun.kpis.scalability,
-        enhanced: enhancedRun.kpis.scalability,
+        label: 'Coverage Ratio (%)',
+        baseline: baselineRun.kpis.coverageRatio,
+        enhanced: enhancedRun.kpis.coverageRatio,
         lowerIsBetter: false,
       },
     ];
@@ -76,13 +76,45 @@ const CompareExport: React.FC = () => {
 
     const rows = [
       ['Metric', 'Baseline', 'Enhanced'],
-      ['Total Distance (km)', baselineRun.kpis.totalDistance, enhancedRun.kpis.totalDistance],
-      ['Travel Time (min)', baselineRun.kpis.travelTime, enhancedRun.kpis.travelTime],
-      ['Operational Time (min)', baselineRun.kpis.operationalTime, enhancedRun.kpis.operationalTime],
+      ['Average Total Distance (km)', baselineRun.kpis.avgTotalDistance, enhancedRun.kpis.avgTotalDistance],
+      ['Average Travel Time (hr)', baselineRun.kpis.avgTravelTime, enhancedRun.kpis.avgTravelTime],
+      ['Operational Time (hr)', baselineRun.kpis.operationalTime, enhancedRun.kpis.operationalTime],
       ['Fairness', baselineRun.kpis.fairness, enhancedRun.kpis.fairness],
-      ['Workload Balance (%)',  Math.round(baselineRun.kpis.workloadBalance * 100), Math.round(enhancedRun.kpis.workloadBalance * 100),],
-      ['Scalability', baselineRun.kpis.scalability, enhancedRun.kpis.scalability],
+      ['Workload Balance (%)', baselineRun.kpis.workloadBalance, enhancedRun.kpis.workloadBalance],
+      ['Coverage Ratio (%)', baselineRun.kpis.coverageRatio, enhancedRun.kpis.coverageRatio],
     ];
+
+    rows.push([]);
+    rows.push([
+      'Per Sales Rep Comparison Report',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+    ]);
+    rows.push([
+      'Sales Rep',
+      'Baseline Customers',
+      'Enhanced Customers',
+      'Baseline Workload',
+      'Enhanced Workload',
+      'Baseline Coverage %',
+      'Enhanced Coverage %',
+    ]);
+
+    repComparisonRows.forEach((row) => {
+      rows.push([
+        row.repId,
+        row.baselineCustomers,
+        row.enhancedCustomers,
+        row.baselineWorkload.toFixed(2),
+        row.enhancedWorkload.toFixed(2),
+        row.baselineCoverage.toFixed(2),
+        row.enhancedCoverage.toFixed(2),
+      ]);
+    });
 
     const csvContent = rows.map((row) => row.join(',')).join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -104,6 +136,7 @@ const CompareExport: React.FC = () => {
       baseline: baselineRun,
       enhanced: enhancedRun,
       comparison: comparisons,
+      repComparisonReport: repComparisonRows,
     };
 
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
@@ -126,6 +159,64 @@ const CompareExport: React.FC = () => {
       </Card>
     );
   }
+
+  const buildRepComparisonRows = () => {
+    const baselineMap = new Map(
+      baselineRun.representatives.map((rep) => [rep.id, rep])
+    );
+    const enhancedMap = new Map(
+      enhancedRun.representatives.map((rep) => [rep.id, rep])
+    );
+
+    const allRepIds = Array.from(
+      new Set([
+        ...baselineRun.representatives.map((rep) => rep.id),
+        ...enhancedRun.representatives.map((rep) => rep.id),
+      ])
+    ).sort();
+
+    const baselineTotalCustomers = baselineRun.representatives.reduce(
+      (sum, rep) => sum + (rep.assignedCustomers || 0),
+      0
+    );
+    const enhancedTotalCustomers = enhancedRun.representatives.reduce(
+      (sum, rep) => sum + (rep.assignedCustomers || 0),
+      0
+    );
+
+    return allRepIds.map((repId) => {
+      const baselineRep = baselineMap.get(repId);
+      const enhancedRep = enhancedMap.get(repId);
+
+      const baselineCustomers = baselineRep?.assignedCustomers ?? 0;
+      const enhancedCustomers = enhancedRep?.assignedCustomers ?? 0;
+
+      const baselineWorkload = baselineRep?.workload ?? 0;
+      const enhancedWorkload = enhancedRep?.workload ?? 0;
+
+      const baselineCoverage =
+        baselineTotalCustomers > 0
+          ? (baselineCustomers / baselineTotalCustomers) * 100
+          : 0;
+
+      const enhancedCoverage =
+        enhancedTotalCustomers > 0
+          ? (enhancedCustomers / enhancedTotalCustomers) * 100
+          : 0;
+
+      return {
+        repId,
+        baselineCustomers,
+        enhancedCustomers,
+        baselineWorkload,
+        enhancedWorkload,
+        baselineCoverage,
+        enhancedCoverage,
+      };
+    });
+  };
+
+  const repComparisonRows = buildRepComparisonRows();
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -165,6 +256,46 @@ const CompareExport: React.FC = () => {
                 ))}
               </div>
             </Card>
+
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Per Sales Rep Comparison Report
+                </h3>
+                <p className="text-sm text-gray-500">
+                  Baseline vs Enhanced comparison by sales representative.
+                </p>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-medium text-gray-700">Sales Rep</th>
+                      <th className="px-4 py-3 text-right font-medium text-gray-700">Baseline Customers</th>
+                      <th className="px-4 py-3 text-right font-medium text-gray-700">Enhanced Customers</th>
+                      <th className="px-4 py-3 text-right font-medium text-gray-700">Baseline Workload</th>
+                      <th className="px-4 py-3 text-right font-medium text-gray-700">Enhanced Workload</th>
+                      <th className="px-4 py-3 text-right font-medium text-gray-700">Baseline Coverage %</th>
+                      <th className="px-4 py-3 text-right font-medium text-gray-700">Enhanced Coverage %</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {repComparisonRows.map((row) => (
+                      <tr key={row.repId} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-gray-900 font-medium">{row.repId}</td>
+                        <td className="px-4 py-3 text-right text-gray-700">{row.baselineCustomers}</td>
+                        <td className="px-4 py-3 text-right text-gray-700">{row.enhancedCustomers}</td>
+                        <td className="px-4 py-3 text-right text-gray-700">{row.baselineWorkload.toFixed(2)}</td>
+                        <td className="px-4 py-3 text-right text-gray-700">{row.enhancedWorkload.toFixed(2)}</td>
+                        <td className="px-4 py-3 text-right text-gray-700">{row.baselineCoverage.toFixed(2)}%</td>
+                        <td className="px-4 py-3 text-right text-gray-700">{row.enhancedCoverage.toFixed(2)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
             <Card title="Export Options">
               <div className="flex flex-wrap gap-4">
