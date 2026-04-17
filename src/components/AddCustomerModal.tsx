@@ -22,7 +22,7 @@ type PickLocation = {
     locationSet?: boolean;
 };
 
-type AddCustomer = {
+export type AddCustomer = {
     label: string;
     lat?: number | null;
     lon?: number | null;
