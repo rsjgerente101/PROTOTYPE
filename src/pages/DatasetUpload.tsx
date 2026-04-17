@@ -20,10 +20,10 @@ const FIELD_OPTIONS = [
   { label: 'Depot ID', value: 'depot_id' },
   { label: 'Depot Latitude', value: 'depot_lat' },
   { label: 'Depot Longitude', value: 'depot_lon' },
-  { label: 'Agent ID', value: 'customer_id' },
   { label: 'Customer Latitude', value: 'customer_lat' },
   { label: 'Customer Longitude', value: 'customer_lon' },
   { label: 'Order ID', value: 'order_id' },
+  { label: 'Order Date', value: 'order_date_col' },
   { label: 'ETA Column', value: 'eta_col' },
   { label: 'Rating Column', value: 'rating_col' },
   { label: 'Area/Cluster Column', value: 'area_col' },
@@ -74,9 +74,11 @@ function buildAutoMapping(headers: string[]): FieldMapping {
     depot_lat: byNormalized.get('depot_lat') || '',
     depot_lon: byNormalized.get('depot_lon') || '',
     customer_id: byNormalized.get('customer_id') || '',
+    agent_id: byNormalized.get('agent_id') || '',
     customer_lat: byNormalized.get('customer_lat') || '',
     customer_lon: byNormalized.get('customer_lon') || '',
     order_id: byNormalized.get('order_id') || undefined,
+    order_date_col: byNormalized.get('order_date') || byNormalized.get('order_date_col') || undefined,
     eta_col: byNormalized.get('observed_eta_min') || byNormalized.get('eta') || undefined,
     rating_col: byNormalized.get('rating') || undefined,
     area_col: byNormalized.get('area') || undefined,
@@ -93,6 +95,7 @@ const DatasetUpload: React.FC = () => {
     customer_id: '',
     customer_lat: '',
     customer_lon: '',
+    agent_id: '',
   });
   const [autoDetectedReconstructed, setAutoDetectedReconstructed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -144,6 +147,7 @@ const DatasetUpload: React.FC = () => {
         customer_id: '',
         customer_lat: '',
         customer_lon: '',
+        agent_id: '',
       });
       return;
     }
@@ -170,6 +174,7 @@ const DatasetUpload: React.FC = () => {
           customer_id: '',
           customer_lat: '',
           customer_lon: '',
+          agent_id: '',
         });
         setMessage(
           `Loaded file: ${uploadedFile.name}. Detected role: ${roleBadgeText(
@@ -190,12 +195,37 @@ const DatasetUpload: React.FC = () => {
       return;
     }
 
+    const detectedRole = inferFrontendDatasetRole(file.name);
+
+    const headerMap = new Map(csvHeaders.map((h) => [cleanHeader(h), h]));
+    const inferredZomatoAgentId =
+      headerMap.get('delivery_person_id') ||
+      headerMap.get('delivery_person_id_') ||
+      '';
+
+    const inferredOrderDateCol =
+      headerMap.get('order_date') ||
+      '';
+
+    const effectiveMapping: FieldMapping =
+      !autoDetectedReconstructed
+        ? {
+            ...mapping,
+            customer_id: mapping.customer_id || mapping.order_id || '',
+            agent_id:
+              detectedRole === 'comparative_template'
+                ? mapping.agent_id || inferredZomatoAgentId || ''
+                : mapping.agent_id,
+            order_date_col: mapping.order_date_col || inferredOrderDateCol || '',
+          }
+        : mapping;
+
     if (
-      !mapping.depot_lat ||
-      !mapping.depot_lon ||
-      !mapping.customer_id ||
-      !mapping.customer_lat ||
-      !mapping.customer_lon
+      !effectiveMapping.depot_lat ||
+      !effectiveMapping.depot_lon ||
+      !effectiveMapping.customer_id ||
+      !effectiveMapping.customer_lat ||
+      !effectiveMapping.customer_lon
     ) {
       setMessage('Please complete the required field mapping.');
       return;
@@ -205,8 +235,7 @@ const DatasetUpload: React.FC = () => {
       setBusy(true);
       setMessage('Validating dataset and building reconstructed baseline dataset context...');
 
-      const detectedRole = inferFrontendDatasetRole(file.name);
-      const result = await validateDataset(file, mapping, detectedRole);
+      const result = await validateDataset(file, effectiveMapping, detectedRole);
 
       const datasetMeta: Dataset = {
         id: result.datasetId,
@@ -305,10 +334,11 @@ const DatasetUpload: React.FC = () => {
               <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
                 <div><strong>Depot Latitude:</strong> {mapping.depot_lat}</div>
                 <div><strong>Depot Longitude:</strong> {mapping.depot_lon}</div>
-                <div><strong>Agent ID:</strong> {mapping.customer_id}</div>
+                <div><strong>Agent ID:</strong> {mapping.agent_id || 'Not detected'}</div>
                 <div><strong>Customer Latitude:</strong> {mapping.customer_lat}</div>
                 <div><strong>Customer Longitude:</strong> {mapping.customer_lon}</div>
                 {mapping.order_id && <div><strong>Order ID:</strong> {mapping.order_id}</div>}
+                {mapping.order_date_col && <div><strong>Order Date:</strong> {mapping.order_date_col}</div>}
                 {mapping.eta_col && <div><strong>ETA Column:</strong> {mapping.eta_col}</div>}
                 {mapping.rating_col && <div><strong>Rating Column:</strong> {mapping.rating_col}</div>}
                 {mapping.area_col && <div><strong>Area/Cluster Column:</strong> {mapping.area_col}</div>}
