@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Maximize2Icon, Minimize2Icon } from 'lucide-react';
 import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip, useMap } from 'react-leaflet';
-import { Route, Depot } from '../types';
+import { Route, Depot, AddedCustomer } from '../types';
 import { Card } from './Card';
 import MapLegend from './MapLegend';
 
@@ -13,6 +13,7 @@ interface MapCanvasProps {
   showRouteNumbers?: boolean;
   highlightedNodes?: string[];
   onMapReady?: () => void;
+  addedCustomers?: AddedCustomer[];
 }
 
 function toNumber(value: unknown): number | null {
@@ -182,6 +183,7 @@ export function MapCanvas({
   showRouteNumbers = true,
   highlightedNodes = [],
   onMapReady,
+  addedCustomers = [],
 }: MapCanvasProps) {
   const allStops = routes.flatMap((r) => r.stops ?? []);
 
@@ -190,10 +192,14 @@ export function MapCanvas({
       .map((s) => normalizeLatLon(s))
       .filter((coords): coords is [number, number] => coords !== null);
 
+    const addedPts = addedCustomers
+      .map((c) => normalizeLatLon(c))
+      .filter((coords): coords is [number, number] => coords !== null);
+
     const depotCoords = normalizeLatLon(depot);
 
-    return depotCoords ? [depotCoords, ...stopPts] : stopPts;
-  }, [allStops, depot]);
+    return depotCoords ? [depotCoords, ...stopPts, ...addedPts] : [...stopPts, ...addedPts];
+  }, [allStops, depot, addedCustomers]);
 
   const fallbackCenter: [number, number] =
     allPoints.length > 0 ? allPoints[0] : [14.5995, 120.9842];
@@ -367,6 +373,31 @@ export function MapCanvas({
               );
             })
           )}
+
+          {addedCustomers.map((customer) => {
+            const coords = normalizeLatLon(customer);
+            if (!coords) return null;
+
+            return (
+              <CircleMarker
+                key={customer.id}
+                center={coords}
+                radius={6}
+                pathOptions={{
+                  color: '#111827',
+                  fillColor: '#10B981',
+                  fillOpacity: 1,
+                  weight: 2,
+                }}
+              >
+                {showLabels && (
+                  <Tooltip direction="top" offset={[0, -5]} permanent>
+                    {customer.label}
+                  </Tooltip>
+                )}
+              </CircleMarker>
+            );
+          })}
         </MapContainer>
 
         <div className="absolute bottom-4 right-4 z-[999]">
