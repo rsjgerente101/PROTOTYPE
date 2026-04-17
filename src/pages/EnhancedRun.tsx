@@ -33,9 +33,8 @@ const EnhancedRun: React.FC = () => {
   const [message, setMessage] = useState('');
 
   const [parameters, setParameters] = useState({
-    fairnessWeight: '0.50',
-    distanceWeight: '0.35',
-    timeWeight: '0.15',
+    alphaWeight: '0.60',
+    betaWeight: '0.40',
     maxIterations: '30',
     borderFraction: '0.70',
   });
@@ -141,24 +140,20 @@ const EnhancedRun: React.FC = () => {
 
       const isAmazon = dataset.datasetRole === 'primary_reconstruction';
 
-      const result = await runEnhanced(
-        isAmazon
-          ? {
-            datasetId: dataset.id,
-            baselineRunId: baselineSummary.id,
-            runProfile: 'amazon_expanded_search',
-          }
-          : {
-            datasetId: dataset.id,
-            baselineRunId: baselineSummary.id,
-            fairnessWeight: Number(parameters.fairnessWeight) || 0.45,
-            distanceWeight: Number(parameters.distanceWeight) || 0.30,
-            timeWeight: Number(parameters.timeWeight) || 0.25,
-            maxIterations: Number(parameters.maxIterations) || 20,
-            borderFraction: Number(parameters.borderFraction) || 0.35,
-            runProfile: 'default_balanced',
-          }
-      );
+      const result = await runEnhanced({
+        datasetId: dataset.id,
+        baselineRunId: baselineSummary.id,
+        alphaWeight: Number(parameters.alphaWeight) || 0.60,
+        betaWeight: Number(parameters.betaWeight) || 0.40,
+        maxIterations: Number(parameters.maxIterations) || 30,
+        borderFraction: Number(parameters.borderFraction) || 0.70,
+        runProfile:
+          dataset.datasetRole === 'primary_reconstruction'
+            ? 'amazon_expanded_search'
+            : dataset.datasetRole === 'comparative_template'
+            ? 'zomato_expanded_search'
+            : 'default_balanced',
+      });
 
       const summary: StoredRunSummary = {
         id: result.id,
@@ -226,7 +221,7 @@ const EnhancedRun: React.FC = () => {
                       </p>
                       <p className="text-sm text-gray-600">
                         This stage starts from the baseline solution, then improves
-                        route assignment using weighted fairness, distance, and time.
+                        route assignment using priority scoring based on time difference and rating.        
                       </p>
                       <Button onClick={handleRun} disabled={busy || !baselineSummary}>
                         {busy ? 'Running...' : 'Run Enhanced Algorithm'}
@@ -256,16 +251,15 @@ const EnhancedRun: React.FC = () => {
                   <div className="space-y-4">
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-2">
-                        Fairness Weight
+                        Time Difference Weight (α)
                       </label>
                       <input
                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                        value={parameters.fairnessWeight}
-                        readOnly
+                        value={parameters.alphaWeight}
                         onChange={(e) =>
                           setParameters((prev) => ({
                             ...prev,
-                            fairnessWeight: e.target.value,
+                            alphaWeight: e.target.value,
                           }))
                         }
                       />
@@ -273,33 +267,15 @@ const EnhancedRun: React.FC = () => {
 
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-2">
-                        Distance Weight
+                        Rating Weight (β)
                       </label>
                       <input
                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                        value={parameters.distanceWeight}
-                        readOnly
+                        value={parameters.betaWeight}
                         onChange={(e) =>
                           setParameters((prev) => ({
                             ...prev,
-                            distanceWeight: e.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-2">
-                        Time Weight
-                      </label>
-                      <input
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                        value={parameters.timeWeight}
-                        readOnly
-                        onChange={(e) =>
-                          setParameters((prev) => ({
-                            ...prev,
-                            timeWeight: e.target.value,
+                            betaWeight: e.target.value,
                           }))
                         }
                       />
@@ -313,7 +289,6 @@ const EnhancedRun: React.FC = () => {
                         <input
                           className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                           value={parameters.maxIterations}
-                          readOnly
                           onChange={(e) =>
                             setParameters((prev) => ({
                               ...prev,
@@ -330,7 +305,6 @@ const EnhancedRun: React.FC = () => {
                         <input
                           className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                           value={parameters.borderFraction}
-                          readOnly
                           onChange={(e) =>
                             setParameters((prev) => ({
                               ...prev,
@@ -396,15 +370,15 @@ const EnhancedRun: React.FC = () => {
                       />
                       <ComparisonTile
                         label="Travel Time"
-                        baselineValue={baselineSummary.kpis.travelTime / 60}
-                        enhancedValue={enhancedRun.kpis.travelTime / 60}
+                        baselineValue={baselineSummary.kpis.travelTime}
+                        enhancedValue={enhancedRun.kpis.travelTime}
                         unit=" hr"
                         lowerIsBetter
                       />
                       <ComparisonTile
                         label="Operational Time"
-                        baselineValue={baselineSummary.kpis.operationalTime / 60}
-                        enhancedValue={enhancedRun.kpis.operationalTime / 60}
+                        baselineValue={baselineSummary.kpis.operationalTime}
+                        enhancedValue={enhancedRun.kpis.operationalTime}
                         unit=" hr"
                         lowerIsBetter
                       />
@@ -488,13 +462,13 @@ const EnhancedRun: React.FC = () => {
                     <div className="rounded-lg bg-slate-50 p-3">
                       <p className="text-xs text-gray-500">Travel Time</p>
                       <p className="text-lg font-semibold text-gray-900">
-                        {(enhancedRun.kpis.travelTime / 60).toFixed(2)} hr
+                        {enhancedRun.kpis.travelTime.toFixed(2)} hr
                       </p>
                     </div>
                     <div className="rounded-lg bg-slate-50 p-3">
                       <p className="text-xs text-gray-500">Operational Time</p>
                       <p className="text-lg font-semibold text-gray-900">
-                        {(enhancedRun.kpis.operationalTime / 60).toFixed(2)} hr
+                        {enhancedRun.kpis.operationalTime.toFixed(2)} hr
                       </p>
                     </div>
                     <div className="rounded-lg bg-slate-50 p-3">
