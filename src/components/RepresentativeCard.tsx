@@ -40,15 +40,15 @@ export function RepresentativeCard({
 
       <div className="grid grid-cols-4 gap-2 mt-3">
         <div>
-          <p className="text-xs text-gray-500">Workload</p>
+          <p className="text-xs text-gray-500">Total Distance (km)</p>
           <p className="text-sm font-semibold text-gray-900">
-            {representative.workload.toFixed(1)}
+            {representative.totalDistance != null ? representative.totalDistance.toFixed(1) : '-'}
           </p>
         </div>
         <div>
-          <p className="text-xs text-gray-500">Opportunity</p>
+          <p className="text-xs text-gray-500">Total Time (hr)</p>
           <p className="text-sm font-semibold text-gray-900">
-            {representative.opportunityScore.toFixed(1)}
+            {representative.totalTime != null ? (representative.totalTime / 60).toFixed(2) : '-'}
           </p>
         </div>
         <div>
