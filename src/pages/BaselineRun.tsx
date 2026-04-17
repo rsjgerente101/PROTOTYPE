@@ -115,6 +115,7 @@ const BaselineRun: React.FC = () => {
   const [message, setMessage] = useState('');
 
   const [parameters, setParameters] = useState({
+    numRepresentatives: '4',
     speed: '40',
     serviceMinutes: '8',
     seed: '42',
@@ -205,7 +206,8 @@ const BaselineRun: React.FC = () => {
       setBusy(true);
       setMessage('Running baseline experiment on backend...');
 
-      const clampedReps = 10;
+      const requestedReps = Number(parameters.numRepresentatives) || 4;
+      const clampedReps = Math.max(2, Math.min(15, requestedReps));
 
       setAddedCustomers([]);
 
