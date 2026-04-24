@@ -84,7 +84,7 @@ RUN_PROFILES: Dict[str, Dict[str, Any]] = {
 }
 
 DEMO_PREVIEW_DEPOTS: Dict[str, Optional[str]] = {
-    "primary_reconstruction": None,   # Amazon demo depot
+    "primary_reconstruction": "DEPOT-244",   # Amazon demo depot
     "comparative_template": "DEPOT-080",     # set this to your chosen Zomato depot ID
     "generic_uploaded_dataset": None,
 }
