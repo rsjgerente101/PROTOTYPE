@@ -207,7 +207,7 @@ export function MapCanvas({
   const hasHighlightedStop = highlightedNodes.length > 0;
 
   return (
-    <Card className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden" padding="none">
+    <Card className="h-full overflow-hidden" padding="none">
       <div className="relative w-full min-h-[820px] h-[60vh]">
         <MapContainer
           {...(allPoints.length > 0
@@ -400,7 +400,7 @@ export function MapCanvas({
           })}
         </MapContainer>
 
-        <div className="absolute bottom-4 right-4 z-[999]">
+        <div className="absolute bottom-20 right-4 z-[999]">
           <MapLegend />
         </div>
       </div>
