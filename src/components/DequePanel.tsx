@@ -38,8 +38,9 @@ export function DequePanel({ representatives, onUpdate }: DequePanelProps) {
   };
 
   return (
-    <Card title="Deque Panel">
+    <Card>
       <div className="mb-4">
+        <h3 className="text-sm font-semibold text-gray-900">Deque Panel</h3>
         <p className="text-xs text-gray-600">
           Manage workload distribution across representatives
         </p>
@@ -60,12 +61,12 @@ export function DequePanel({ representatives, onUpdate }: DequePanelProps) {
               {index === 0
                 ? 'F'
                 : index === representatives.length - 1
-                ? 'R'
-                : index + 1}
+                  ? 'R'
+                  : index + 1}
             </div>
 
             <RepresentativeCard representative={rep} isDraggable={!!onUpdate} />
-            
+
             {/*
             <div className="flex gap-2 mt-2">
               <Button
