@@ -267,18 +267,20 @@ const BaselineRun: React.FC = () => {
         </div>
 
         <div className="flex-1 flex overflow-hidden">
-          <div className="flex-1 p-6 overflow-auto" style={{ minWidth: 0 }}>
+          <div className="flex-1 p-6 overflow-hidden min-w-0 flex flex-col">
             {run ? (
               <>
-                <MapCanvas
-                  routes={selectedRoutesForDisplay}
-                  depot={displayDepot}
-                  showLabels={showLabels}
-                  showRouteNumbers={showRouteNumbers}
-                  highlightedNodes={selectedStopNodeId ? [selectedStopNodeId] : []}
-                  onMapReady={() => setMapLoaded(true)}
-                  addedCustomers={addedCustomers}
-                />
+                <div className="flex-1 min-h-[480px]">
+                  <MapCanvas
+                    routes={selectedRoutesForDisplay}
+                    depot={displayDepot}
+                    showLabels={showLabels}
+                    showRouteNumbers={showRouteNumbers}
+                    highlightedNodes={selectedStopNodeId ? [selectedStopNodeId] : []}
+                    onMapReady={() => setMapLoaded(true)}
+                    addedCustomers={addedCustomers}
+                  />
+                </div>
 
                 <div className="mt-6">
                   <RouteTable
@@ -314,9 +316,9 @@ const BaselineRun: React.FC = () => {
                   <div className="text-xs text-gray-500">Depot</div>
                   <div className="text-sm font-medium text-gray-900">
                     {dataset?.datasetRole === 'primary_reconstruction'
-                      ? 'DEPOT-130'
+                      ? 'DEPOT-244'
                       : dataset?.datasetRole === 'comparative_template'
-                        ? 'DEPOT-153'
+                        ? 'DEPOT-080'
                         : 'Automatic'}
                   </div>
                 </div>
