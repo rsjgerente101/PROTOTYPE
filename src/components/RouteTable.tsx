@@ -25,7 +25,7 @@ export function RouteTable({ routes, title }: RouteTableProps) {
         </div>
       )}
 
-      <div className="overflow-auto max-h-96">
+      <div className="overflow-auto h-56 lg:h-56">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 sticky top-0">
             <tr>
