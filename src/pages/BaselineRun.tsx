@@ -205,7 +205,8 @@ const BaselineRun: React.FC = () => {
       setBusy(true);
       setMessage('Running baseline experiment on backend...');
 
-      const clampedReps = 10;
+      const requestedReps = Number(parameters.vehicles) || 15;
+      const clampedReps = Math.max(10, Math.min(15, requestedReps));
 
       setAddedCustomers([]);
 
@@ -312,7 +313,7 @@ const BaselineRun: React.FC = () => {
                   <div className="text-xs text-gray-500">Depot</div>
                   <div className="text-sm font-medium text-gray-900">
                     {dataset?.datasetRole === 'primary_reconstruction'
-                      ? 'DEPOT-130'
+                      ? 'DEPOT-046'
                       : dataset?.datasetRole === 'comparative_template'
                         ? 'DEPOT-153'
                         : 'Automatic'}
