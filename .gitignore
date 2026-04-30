@@ -1,0 +1,5 @@
+backend/cache/
+backend/cache/osm/
+*.graphmlnode_modules/
+.vite/
+dist/

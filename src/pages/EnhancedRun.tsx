@@ -151,8 +151,8 @@ const EnhancedRun: React.FC = () => {
           dataset.datasetRole === 'primary_reconstruction'
             ? 'amazon_expanded_search'
             : dataset.datasetRole === 'comparative_template'
-            ? 'zomato_expanded_search'
-            : 'default_balanced',
+              ? 'zomato_expanded_search'
+              : 'default_balanced',
       });
 
       const summary: StoredRunSummary = {
@@ -202,7 +202,7 @@ const EnhancedRun: React.FC = () => {
         </div>
 
         <div className="flex-1 flex overflow-hidden">
-          <div className="flex-1 p-6 overflow-auto" style={{ minWidth: 0 }}>
+          <div className="flex-1 p-6 overflow-hidden min-w-0 flex flex-col">
             <div className="flex flex-col gap-6 h-full">
               <div className="flex-1 min-h-[480px]">
                 {enhancedRun ? (
@@ -221,7 +221,7 @@ const EnhancedRun: React.FC = () => {
                       </p>
                       <p className="text-sm text-gray-600">
                         This stage starts from the baseline solution, then improves
-                        route assignment using priority scoring based on time difference and rating.        
+                        route assignment using priority scoring based on time difference and rating.
                       </p>
                       <Button onClick={handleRun} disabled={busy || !baselineSummary}>
                         {busy ? 'Running...' : 'Run Enhanced Algorithm'}
@@ -410,7 +410,7 @@ const EnhancedRun: React.FC = () => {
                         }}
                         disabled={!enhancedRun}
                       >
-                        <option value="">Select a route</option>
+                        <option value="">All routes</option>
                         {routeOptions.map((option) => (
                           <option key={option.value} value={option.value}>
                             {option.label}
@@ -434,7 +434,7 @@ const EnhancedRun: React.FC = () => {
                         checked={showLabels}
                         onChange={(e) => setShowLabels(e.target.checked)}
                       />
-                       Show Customer Labels and Assigned Reps
+                      Show Customer Labels and Assigned Reps
                     </label>
 
                     <label className="flex items-center gap-2 text-sm text-gray-700">

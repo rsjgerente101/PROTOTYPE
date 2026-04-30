@@ -59,15 +59,15 @@ RUN_PROFILES: Dict[str, Dict[str, Any]] = {
     },
     "amazon_expanded_search": {
         "preview_initial_radius_km": 25.0,
-        "preview_max_radius_km": 80.0,
-        "preview_local_cap_km": 80.0,
-        "preview_osm_threshold_km": 50.0,
-        "preview_max_total_stops": 80,
-        "enhanced_fairness_weight": 0.50,
-        "enhanced_distance_weight": 0.35,
-        "enhanced_time_weight": 0.15,
-        "enhanced_max_iterations": 50,
-        "enhanced_border_fraction": 1.00,
+        "preview_max_radius_km": 120.0,
+        "preview_local_cap_km": 100.0,
+        "preview_osm_threshold_km": 35.0,
+        "preview_max_total_stops": 60,
+        "enhanced_fairness_weight": 0.35,
+        "enhanced_distance_weight": 0.45,
+        "enhanced_time_weight": 0.20,
+        "enhanced_max_iterations": 20,
+        "enhanced_border_fraction": 0.35,
     },
     "zomato_expanded_search": {
         "preview_initial_radius_km": 20.0,
@@ -84,7 +84,7 @@ RUN_PROFILES: Dict[str, Dict[str, Any]] = {
 }
 
 DEMO_PREVIEW_DEPOTS: Dict[str, Optional[str]] = {
-    "primary_reconstruction": None,   # Amazon demo depot
+    "primary_reconstruction": "DEPOT-244",   # Amazon demo depot
     "comparative_template": "DEPOT-080",     # set this to your chosen Zomato depot ID
     "generic_uploaded_dataset": None,
 }
@@ -109,7 +109,7 @@ class FieldMapping(BaseModel):
 
 class BaselineRequest(BaseModel):
     dataset_id: str
-    num_representatives: int = 10
+    num_representatives: int = 4
     avg_speed_kmph: float = 40.0
     service_minutes_per_stop: float = 8.0
     seed: int = 42
@@ -1573,16 +1573,6 @@ def workload_balance_index(values: List[float]) -> float:
         return 0.0
     return float(arr.std(ddof=0) / mean)
 
-def priority_score_variance(rep_perf: pd.DataFrame) -> float:
-    if rep_perf.empty or "priority_score" not in rep_perf.columns:
-        return 0.0
-
-    arr = pd.to_numeric(rep_perf["priority_score"], errors="coerce").fillna(0.0).to_numpy()
-    if len(arr) <= 1:
-        return 0.0
-
-    return float(np.var(arr))
-
 
 def rep_cards(rep_df: pd.DataFrame, assign_df: Optional[pd.DataFrame] = None) -> List[Dict[str, Any]]:
     if rep_df.empty:
@@ -1789,6 +1779,7 @@ def enhance_assignment(
     max_iterations: int,
     border_fraction: float,
     distance_matrix: Dict[str, Dict[str, float]],
+    is_zomato_mode: bool = False,
 ) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
     current = ensure_preview_node_ids(assign_df.copy())
     logs: List[Dict[str, Any]] = []
@@ -1802,23 +1793,13 @@ def enhance_assignment(
             beta=beta_weight,
         ).reset_index(drop=True)
 
-        ps_variance = priority_score_variance(rep_perf)
-        print("priority score variance:", round(ps_variance, 6))            
-
         if len(rep_perf) < 2:
             break
 
         overall_gap = float(
             rep_perf.iloc[-1]["operational_minutes"] - rep_perf.iloc[0]["operational_minutes"]
         )
-        print(f"overall_gap minutes: {overall_gap:.2f}")
-
-        if ps_variance < 0.015:
-            print("stopping: priority score variance below threshold")
-            break
-
         if overall_gap < 5.0:
-            print("stopping: workload gap already small")
             break
 
         current_score = objective_value(
@@ -1831,18 +1812,11 @@ def enhance_assignment(
         )
 
         n_reps = len(rep_perf)
-        light_count = max(1, int(math.ceil(n_reps * border_fraction)))
-        heavy_count = max(1, int(math.ceil(n_reps * border_fraction)))
+        heavy_count = min(3, n_reps - 1)
+        light_count = min(3, n_reps - 1)
 
-        light_ids = [
-            str(rep_perf.iloc[i]["rep_id"])
-            for i in range(min(light_count, n_reps))
-        ]
-
-        heavy_ids = [
-            str(rep_perf.iloc[n_reps - 1 - j]["rep_id"])
-            for j in range(min(heavy_count, n_reps))
-        ]
+        light_ids = [str(rep_perf.iloc[i]["rep_id"]) for i in range(min(light_count, n_reps))]
+        heavy_ids = [str(rep_perf.iloc[n_reps - 1 - j]["rep_id"]) for j in range(min(heavy_count, n_reps))]
 
         # ---------------------------
         # 1) TRANSFER SEARCH
@@ -1857,19 +1831,6 @@ def enhance_assignment(
         for heavy_rep in heavy_ids:
             for light_rep in light_ids:
                 if heavy_rep == light_rep:
-                    continue
-                heavy_ps = float(
-                    rep_perf.loc[rep_perf["rep_id"] == heavy_rep, "priority_score"].iloc[0]
-                )
-                light_ps = float(
-                    rep_perf.loc[rep_perf["rep_id"] == light_rep, "priority_score"].iloc[0]
-                )
-
-                ps_gap = heavy_ps - light_ps
-                if ps_gap <= 0:
-                    continue
-
-                if ps_gap < 0.01:
                     continue
                 if (heavy_rep, light_rep) in tried_pairs:
                     continue
@@ -1917,13 +1878,26 @@ def enhance_assignment(
                     time_gain = current_eval["total"]["operational_minutes"] - trial_eval["total"]["operational_minutes"]
                     score_gain = current_score - trial_score
 
-                    if fairness_gain < 0:
+                    EPS = 1e-6
+
+                    if fairness_gain <= 0:
                         continue
 
-                    if distance_gain < -12.0:
-                        continue
-                    if distance_gain < -4.0 and fairness_gain < 0.06:
-                        continue
+                    if is_zomato_mode:
+                        # Slightly looser for Zomato:
+                        # allow small distance/time worsening if fairness gain is meaningful
+                        if distance_gain < -12.0:
+                            continue
+                        if distance_gain < -4.0:
+                            continue
+                        if fairness_gain < 0.01 and (distance_gain < -EPS or time_gain < -EPS):
+                            continue
+                    else:
+                        # Keep Amazon strict
+                        if distance_gain < -EPS:
+                            continue
+                        if time_gain < -EPS:
+                            continue
 
                     if score_gain > best_score_gain:
                         best_score_gain = score_gain
@@ -1969,19 +1943,6 @@ def enhance_assignment(
         for heavy_rep in heavy_ids:
             for light_rep in light_ids:
                 if heavy_rep == light_rep:
-                    continue
-                heavy_ps = float(
-                    rep_perf.loc[rep_perf["rep_id"] == heavy_rep, "priority_score"].iloc[0]
-                )
-                light_ps = float(
-                    rep_perf.loc[rep_perf["rep_id"] == light_rep, "priority_score"].iloc[0]
-                )
-
-                ps_gap = heavy_ps - light_ps
-                if ps_gap <= 0:
-                    continue
-
-                if ps_gap < 0.01:
                     continue
                 if (heavy_rep, light_rep) in tried_pairs:
                     continue
@@ -2042,12 +2003,25 @@ def enhance_assignment(
                         time_gain = current_eval["total"]["operational_minutes"] - trial_eval["total"]["operational_minutes"]
                         score_gain = current_score - trial_score
 
-                        if fairness_gain < 0:
-                            continue
+                    EPS = 1e-6
 
+                    if fairness_gain <= 0:
+                        continue
+
+                    if is_zomato_mode:
+                        # Slightly looser for Zomato:
+                        # allow small distance/time worsening if fairness gain is meaningful
                         if distance_gain < -12.0:
                             continue
-                        if distance_gain < -4.0 and fairness_gain < 0.06:
+                        if distance_gain < -4.0:
+                            continue
+                        if fairness_gain < 0.01 and (distance_gain < -EPS or time_gain < -EPS):
+                            continue
+                    else:
+                        # Keep Amazon strict
+                        if distance_gain < -EPS:
+                            continue
+                        if time_gain < -EPS:
                             continue
 
                         if score_gain > swap_best_score_gain:
@@ -2188,17 +2162,15 @@ def assign_preview_rep_ids_from_agent(
     )
 
     unique_agents = agent_counts.index.tolist()
-    if len(unique_agents) < num_representatives:
-        print(
-            f"existing agent-based preview has only {len(unique_agents)} unique agents "
-            f"for {num_representatives} requested reps."
-        )
-        if strict_existing_agents:
-            top_agents = unique_agents
-        else:
-            print("falling back to generated uneven reps.")
-            return assign_preview_rep_ids_uneven(work, num_representatives)
+    if strict_existing_agents:
+        top_agents = unique_agents
     else:
+        if len(unique_agents) < num_representatives:
+            print(
+                f"existing agent-based preview has only {len(unique_agents)} unique agents "
+                f"for {num_representatives} requested reps."
+            )
+            return assign_preview_rep_ids_uneven(work, num_representatives)
         top_agents = unique_agents[:num_representatives]
     filtered = valid[valid["agent_id"].isin(top_agents)].copy()
 
@@ -2261,70 +2233,6 @@ def assign_preview_rep_ids_from_agent(
     filtered["rep_id"] = filtered["agent_id"].astype(str)
     return filtered.drop(columns=["to_depot_km"], errors="ignore").reset_index(drop=True)
 
-def assign_preview_rep_ids_real_agents_grouped(
-    preview_df: pd.DataFrame,
-    requested_reps: int,
-    min_customers_per_rep: int = 2,
-) -> pd.DataFrame:
-    if preview_df.empty:
-        return preview_df.copy()
-
-    work = preview_df.copy().reset_index(drop=True)
-
-    if "agent_id" not in work.columns:
-        return assign_preview_rep_ids_uneven(work, requested_reps)
-
-    work["agent_id"] = work["agent_id"].astype(str).fillna("UNKNOWN")
-    work["agent_id"] = work["agent_id"].replace({"": "UNKNOWN", "nan": "UNKNOWN", "None": "UNKNOWN"})
-
-    valid = work[work["agent_id"] != "UNKNOWN"].copy()
-    if valid.empty:
-        return assign_preview_rep_ids_uneven(work, requested_reps)
-
-    # Keep fewer real agents so each one can have multiple customers
-    unique_agents = valid["agent_id"].nunique()
-    max_reps_by_customer_density = max(1, len(valid) // max(1, min_customers_per_rep))
-    target_reps = min(requested_reps, unique_agents, max_reps_by_customer_density)
-
-    # Keep at least 4 real reps when possible
-    target_reps = max(4, target_reps) if unique_agents >= 4 and len(valid) >= 8 else target_reps
-    target_reps = min(target_reps, unique_agents)
-
-    agent_counts = valid.groupby("agent_id").size().sort_values(ascending=False)
-    kept_agents = agent_counts.head(target_reps).index.tolist()
-
-    kept = valid[valid["agent_id"].isin(kept_agents)].copy()
-    moved = valid[~valid["agent_id"].isin(kept_agents)].copy()
-
-    # Reassign dropped-agent customers to nearest kept real agent centroid
-    if not moved.empty and not kept.empty:
-        centroids = (
-            kept.groupby("agent_id")[["customer_lat", "customer_lon"]]
-            .mean()
-            .reset_index()
-        )
-
-        def nearest_kept_agent(row: pd.Series) -> str:
-            best_agent = None
-            best_km = float("inf")
-            for _, c in centroids.iterrows():
-                km = haversine_km(
-                    float(row["customer_lat"]),
-                    float(row["customer_lon"]),
-                    float(c["customer_lat"]),
-                    float(c["customer_lon"]),
-                )
-                if km < best_km:
-                    best_km = km
-                    best_agent = str(c["agent_id"])
-            return best_agent or kept_agents[0]
-
-        moved["agent_id"] = moved.apply(nearest_kept_agent, axis=1)
-
-    combined = pd.concat([kept, moved], ignore_index=True)
-    combined["rep_id"] = combined["agent_id"].astype(str)
-    return combined.reset_index(drop=True)
-
 def assign_preview_rep_ids_uneven(
     preview_df: pd.DataFrame,
     num_representatives: int,
@@ -2373,12 +2281,12 @@ def assign_preview_rep_ids_uneven(
         sizes[i] += 1
 
     # Optional slight imbalance for the first rep if possible
-    if num_representatives > 1 and n >= num_representatives * 2:
-        for j in range(num_representatives - 1, 0, -1):
-            if sizes[j] > 1:
-                sizes[0] += 1
-                sizes[j] -= 1
-                break
+    # if num_representatives > 1 and n >= num_representatives * 2:
+    #     for j in range(num_representatives - 1, 0, -1):
+    #         if sizes[j] > 1:
+    #             sizes[0] += 1
+    #             sizes[j] -= 1
+    #             break
 
     assigned = []
     for rep_id, size in zip(rep_ids, sizes):
@@ -2393,17 +2301,19 @@ def choose_best_local_depot_cluster(
     candidate_pool_size: int = 12,
     prefer_agent_coverage: bool = False,
     min_agents: int = 1,
-    rank_index: int = 0,
-    min_cluster_nodes: int = 13,
 ) -> Tuple[float, float, pd.DataFrame]:
     """
-    Choose one depot cluster for preview.
+    Choose the depot whose nearby customer cluster is most suitable for preview.
 
-    rank_index = 0  -> best depot
-    rank_index = 1  -> second-best depot
-    rank_index = 2  -> third-best depot
+    Default behavior:
+    - prefers compact clusters
+
+    When prefer_agent_coverage=True:
+    - prefers more distinct agents
+    - then higher total order demand
+    - then more nearby nodes
+    - then compactness
     """
-
     work = df.copy()
 
     depot_groups = (
@@ -2415,7 +2325,10 @@ def choose_best_local_depot_cluster(
     if depot_groups.empty:
         raise HTTPException(status_code=400, detail="No depot coordinates available for preview.")
 
-    ranked_candidates = []
+    best_score = None
+    best_depot_lat = None
+    best_depot_lon = None
+    best_cluster = None
 
     for depot in depot_groups.itertuples(index=False):
         depot_lat = float(depot.depot_lat)
@@ -2458,35 +2371,7 @@ def choose_best_local_depot_cluster(
         if cluster.empty:
             continue
 
-        cluster_node_count = (
-            int(cluster["customer_node_id"].nunique())
-            if "customer_node_id" in cluster.columns
-            else int(len(cluster))
-        )
-
         nearest = cluster.nsmallest(candidate_pool_size, "to_depot_km").copy()
-        print(
-            "depot cluster size check:",
-            {
-                "depot_lat": depot_lat,
-                "depot_lon": depot_lon,
-                "cluster_rows_after_dedupe": int(len(cluster)),
-                "cluster_unique_customer_nodes": int(cluster["customer_node_id"].nunique()) if "customer_node_id" in cluster.columns else int(len(cluster)),
-                "nearest_rows_used_for_score": int(len(nearest)),
-                "nearest_unique_customer_nodes": int(nearest["customer_node_id"].nunique()) if "customer_node_id" in nearest.columns else int(len(nearest)),
-            }
-        )
-        print(
-            "depot node counts:",
-            {
-                "depot_lat": depot_lat,
-                "depot_lon": depot_lon,
-                "cluster_rows_after_dedupe": int(len(cluster)),
-                "cluster_unique_customer_nodes": int(cluster["customer_node_id"].nunique()) if "customer_node_id" in cluster.columns else int(len(cluster)),
-                "nearest_rows_used_for_score": int(len(nearest)),
-                "nearest_unique_customer_nodes": int(nearest["customer_node_id"].nunique()) if "customer_node_id" in nearest.columns else int(len(nearest)),
-            }
-        )
 
         distinct_agents = 0
         if "agent_id" in nearest.columns:
@@ -2497,11 +2382,13 @@ def choose_best_local_depot_cluster(
             )
             distinct_agents = int(agent_series[agent_series != "UNKNOWN"].nunique())
 
+        total_orders = 0.0
         if "node_order_count" in cluster.columns:
             total_orders = float(pd.to_numeric(cluster["node_order_count"], errors="coerce").fillna(1).sum())
         else:
             total_orders = float(len(cluster))
 
+        nearby_orders = 0.0
         if "node_order_count" in nearest.columns:
             nearby_orders = float(pd.to_numeric(nearest["node_order_count"], errors="coerce").fillna(1).sum())
         else:
@@ -2515,7 +2402,6 @@ def choose_best_local_depot_cluster(
             insufficient_agent_penalty = 1 if distinct_agents < min_agents else 0
             score = (
                 insufficient_agent_penalty,
-                -cluster_node_count,
                 -distinct_agents,
                 -total_orders,
                 -nearby_orders,
@@ -2525,31 +2411,18 @@ def choose_best_local_depot_cluster(
             )
         else:
             score = (
+                -nearby_nodes,
+                -distinct_agents,
+                -total_orders,
                 mean_dist,
                 max_dist,
-                -nearby_nodes,
-                -total_orders,
             )
-
-        ranked_candidates.append({
-            "score": score,
-            "depot_lat": depot_lat,
-            "depot_lon": depot_lon,
-            "cluster": cluster.copy(),
-            "distinct_agents": distinct_agents,
-            "total_orders": total_orders,
-            "nearby_orders": nearby_orders,
-            "nearby_nodes": nearby_nodes,
-            "mean_dist": mean_dist,
-            "max_dist": max_dist,
-        })
 
         print(
             "candidate depot:",
             {
                 "depot_lat": depot_lat,
                 "depot_lon": depot_lon,
-                "cluster_nodes_total": cluster_node_count,
                 "distinct_agents": distinct_agents,
                 "total_orders": round(total_orders, 2),
                 "nearby_orders": round(nearby_orders, 2),
@@ -2559,25 +2432,25 @@ def choose_best_local_depot_cluster(
             }
         )
 
-    if not ranked_candidates:
+        if best_score is None or score < best_score:
+            best_score = score
+            best_depot_lat = depot_lat
+            best_depot_lon = depot_lon
+            best_cluster = cluster.copy()
+
+    if best_cluster is None:
         raise HTTPException(status_code=400, detail="Could not build a local depot preview cluster.")
-
-    ranked_candidates = sorted(ranked_candidates, key=lambda x: x["score"])
-
-    chosen_idx = min(rank_index, len(ranked_candidates) - 1)
-    chosen = ranked_candidates[chosen_idx]
-
+    
     print(
-        "selected depot cluster:",
-        {
-            "rank_index": chosen_idx,
-            "depot_lat": chosen["depot_lat"],
-            "depot_lon": chosen["depot_lon"],
-            "score": chosen["score"],
-        }
-    )
+    "selected depot cluster:",
+    {
+        "depot_lat": best_depot_lat,
+        "depot_lon": best_depot_lon,
+        "score": best_score,
+    }
+)
 
-    return chosen["depot_lat"], chosen["depot_lon"], chosen["cluster"]
+    return best_depot_lat, best_depot_lon, best_cluster
 
 def build_local_preview_subset(
     df: pd.DataFrame,
@@ -2588,45 +2461,43 @@ def build_local_preview_subset(
     local_cap_km: float = 14.0,
     use_existing_agents: bool = False,
     strict_existing_agents: bool = False,
+    min_nodes_per_rep: int = 3,
 ) -> pd.DataFrame:
     work = df.copy()
 
-    if "order_date" in work.columns and not use_existing_agents:
-        work["order_date"] = parse_order_date_series(work["order_date"])
-        valid_dates = sorted(work["order_date"].dropna().unique())
+    if "order_date" in work.columns:
+         work["order_date"] = parse_order_date_series(work["order_date"])
+         valid_dates = sorted(work["order_date"].dropna().unique())
 
-        if len(valid_dates) > 0:
-            selected_dates = [valid_dates[-1]]
-            dated = work[work["order_date"].isin(selected_dates)].copy()
+         if len(valid_dates) > 0:
+             selected_dates = [valid_dates[-1]]
+             dated = work[work["order_date"].isin(selected_dates)].copy()
 
-            idx = len(valid_dates) - 2
-            target_min_rows = max(max_total_stops * 3, num_representatives * 6)
+             # Expand backward in time until we have enough candidate rows
+             idx = len(valid_dates) - 2
+             target_min_rows = max(max_total_stops, num_representatives * 2)
 
-            while len(dated) < target_min_rows and idx >= 0:
-                selected_dates.append(valid_dates[idx])
-                dated = work[work["order_date"].isin(selected_dates)].copy()
-                idx -= 1
+             while len(dated) < target_min_rows and idx >= 0:
+                 selected_dates.append(valid_dates[idx])
+                 dated = work[work["order_date"].isin(selected_dates)].copy()
+                 idx -= 1
 
-            work = dated.copy()
-            selected_dates_sorted = sorted(pd.to_datetime(selected_dates))
-            print(
-                "order_date window used for preview:",
-                [d.strftime("%Y-%m-%d") for d in selected_dates_sorted]
-            )
-    else:
-        print("using all dates for depot selection")
+             work = dated.copy()
+             selected_dates_sorted = sorted(pd.to_datetime(selected_dates))
+             print(
+                 "order_date window used for preview:",
+                 [d.strftime("%Y-%m-%d") for d in selected_dates_sorted]
+             )
     
     if len(work) < num_representatives:
-        print("date-filtered preview too small, falling back to all dates")
-        work = df.copy()
+         print("date-filtered preview too small, falling back to all dates")
+         work = df.copy()
 
     depot_lat, depot_lon, depot_cluster = choose_best_local_depot_cluster(
         work,
-        candidate_pool_size=max(max_total_stops * 6, num_representatives * 10, 120),
+        candidate_pool_size=max(max_total_stops, num_representatives * 3),
         prefer_agent_coverage=use_existing_agents,
-        min_agents=max(4, num_representatives // 2),
-        rank_index=0,
-        min_cluster_nodes=5,
+        min_agents=num_representatives,
     )
 
     print(f"chosen preview depot: ({depot_lat}, {depot_lon})")
@@ -2648,10 +2519,12 @@ def build_local_preview_subset(
         radius *= 1.5
         local = depot_cluster[depot_cluster["to_depot_km"] <= radius].copy()
 
+    target_local_nodes = max(max_total_stops, num_representatives * min_nodes_per_rep)
+
     if local.empty:
-        local = depot_cluster.nsmallest(max(max_total_stops, num_representatives), "to_depot_km").copy()
+        local = depot_cluster.nsmallest(target_local_nodes, "to_depot_km").copy()
     else:
-        local = local.nsmallest(max(max_total_stops, num_representatives), "to_depot_km").copy()
+        local = local.nsmallest(target_local_nodes, "to_depot_km").copy()
 
     if "customer_node_id" in local.columns:
         local = local.sort_values("to_depot_km").drop_duplicates(subset=["customer_node_id"]).copy()
@@ -2676,12 +2549,14 @@ def build_local_preview_subset(
             refill = refill.head(max(max_total_stops * 3, num_representatives * 4)).copy()
             local = refill.copy()
     else:
-        # Non-agent mode can stay compact
-        if len(local) >= num_representatives:
-            local = local.head(max_total_stops).copy()
+
+        target_local_nodes = max(max_total_stops, num_representatives * min_nodes_per_rep, 24)
+
+        if len(local) >= target_local_nodes:
+            local = local.head(target_local_nodes).copy()
         else:
             refill = depot_cluster.sort_values("to_depot_km").copy()
-            refill = refill.head(max(max_total_stops, num_representatives)).copy()
+            refill = refill.head(target_local_nodes).copy()
             local = refill.copy()
 
     # If still too small, refill from the same chosen depot cluster only
@@ -2741,98 +2616,198 @@ def build_local_preview_subset(
     if 'customer_node_id' in local.columns:
         print(f"distinct customer_node_id in local: {local['customer_node_id'].nunique()}")
 
-    local_agent_count = (
-        local["agent_id"].astype(str)
-        .replace({"": "UNKNOWN", "nan": "UNKNOWN", "None": "UNKNOWN"})
-        .nunique()
-        if "agent_id" in local.columns
-        else 0
-    )
-
-    local_node_count = (
-        local["customer_node_id"].nunique()
-        if "customer_node_id" in local.columns
-        else len(local)
-    )
-
-    if local_node_count < num_representatives * 2 or local_agent_count < max(4, num_representatives // 2):
-        print("preview still too sparse after date window expansion; falling back to all dates for depot search")
-        work = df.copy()
-        depot_lat, depot_lon, depot_cluster = choose_best_local_depot_cluster(
-            work,
-            candidate_pool_size=max(max_total_stops * 6, num_representatives * 10, 120),
-            prefer_agent_coverage=use_existing_agents,
-            min_agents=max(4, num_representatives // 2),
-            rank_index=0,
-            min_cluster_nodes=5,
-        )
-
-        depot_cluster["to_depot_km"] = depot_cluster.apply(
-            lambda r: haversine_km(
-                depot_lat,
-                depot_lon,
-                float(r["customer_lat"]),
-                float(r["customer_lon"]),
-            ),
-            axis=1,
-        )
-
-        local = depot_cluster.sort_values("to_depot_km").copy()
-        if "customer_node_id" in local.columns:
-            local = local.drop_duplicates(subset=["customer_node_id"]).copy()
-
-        local = local.head(max(max_total_stops * 10, num_representatives * 12, 150)).copy()
-    
-    print(
-        "final local before rep assignment:",
-        {
-            "rows": int(len(local)),
-            "unique_customer_nodes": int(local["customer_node_id"].nunique()) if "customer_node_id" in local.columns else int(len(local)),
-            "unique_agents": int(local["agent_id"].astype(str).replace({'': 'UNKNOWN', 'nan': 'UNKNOWN', 'None': 'UNKNOWN'}).nunique()) if "agent_id" in local.columns else 0,
-        }
-    )
-
     local = local.drop(columns=["to_depot_km"], errors="ignore").copy()
 
-    actual_local_nodes = (
-        local["customer_node_id"].nunique()
-        if "customer_node_id" in local.columns
-        else len(local)
-    )
+    if use_existing_agents and strict_existing_agents and "agent_id" in local.columns:
+        strict_local = local.copy()
+        strict_local["agent_id"] = strict_local["agent_id"].astype(str).fillna("UNKNOWN")
+        strict_local["agent_id"] = strict_local["agent_id"].replace(
+            {"": "UNKNOWN", "nan": "UNKNOWN", "None": "UNKNOWN"}
+        )
 
-    effective_preview_reps = min(
-        num_representatives,
-        max(4, actual_local_nodes // 2),
-    )
+        strict_local = strict_local[strict_local["agent_id"] != "UNKNOWN"].copy()
 
-    print("actual_local_nodes for rep assignment:", actual_local_nodes)
-    print("effective_preview_reps:", effective_preview_reps)
+        if not strict_local.empty:
+            strict_local["rep_id"] = strict_local["agent_id"].astype(str)
+            print(
+                "strict existing-agent preservation active; "
+                f"keeping all available real agents: {strict_local['rep_id'].nunique()}"
+            )
+            return strict_local.reset_index(drop=True)
 
     if use_existing_agents:
-        if strict_existing_agents:
-            preview_assigned = assign_preview_rep_ids_from_agent(
-                local,
-                effective_preview_reps,
-                max_total_stops=max_total_stops,
-                strict_existing_agents=True,
-            )
-        else:
-            preview_assigned = assign_preview_rep_ids_real_agents_grouped(
-                local,
-                requested_reps=effective_preview_reps,
-                min_customers_per_rep=2,
-            )
-
+        preview_assigned = assign_preview_rep_ids_from_agent(
+            local,
+            num_representatives,
+            max_total_stops=max_total_stops,
+            strict_existing_agents=strict_existing_agents,
+        )
         if not preview_assigned.empty and preview_assigned["rep_id"].nunique() > 0:
             return preview_assigned
 
-    preview_assigned = assign_preview_rep_ids_uneven(local, effective_preview_reps)
+    preview_assigned = assign_preview_rep_ids_uneven(local, num_representatives)
+    return preview_assigned
+
+def build_local_preview_subset_amazon(
+    df: pd.DataFrame,
+    num_representatives: int,
+    max_total_stops: int = 12,
+    initial_radius_km: float = 7.0,
+    max_radius_km: float = 16.0,
+    local_cap_km: float = 14.0,
+    use_existing_agents: bool = False,
+    strict_existing_agents: bool = False,
+    min_nodes_per_rep: int = 4,
+) -> pd.DataFrame:
+    """
+    Amazon-specific preview builder.
+
+    Differences from the original Zomato-safe preview builder:
+    - does NOT use order_date filtering
+    - does NOT strongly preserve real agent_id assignments
+    - can reduce effective reps to maintain a minimum node density
+    - prefers a denser preview for supplementary Amazon demonstration
+    """
+    work = df.copy()
+
+    depot_lat, depot_lon, depot_cluster = choose_best_local_depot_cluster(
+        work,
+        candidate_pool_size=max(max_total_stops, num_representatives * 3),
+        prefer_agent_coverage=False,
+        min_agents=num_representatives,
+    )
+
+    print(f"chosen preview depot: ({depot_lat}, {depot_lon})")
+
+    depot_cluster["to_depot_km"] = depot_cluster.apply(
+        lambda r: haversine_km(
+            depot_lat,
+            depot_lon,
+            float(r["customer_lat"]),
+            float(r["customer_lon"]),
+        ),
+        axis=1,
+    )
+
+    radius = initial_radius_km
+    local = depot_cluster[depot_cluster["to_depot_km"] <= radius].copy()
+
+    while len(local) < max_total_stops and radius < max_radius_km:
+        radius *= 1.5
+        local = depot_cluster[depot_cluster["to_depot_km"] <= radius].copy()
+
+    target_local_nodes = max(
+        max_total_stops,
+        num_representatives * min_nodes_per_rep,
+    )
+
+    if local.empty:
+        local = depot_cluster.nsmallest(target_local_nodes, "to_depot_km").copy()
+    else:
+        local = local.nsmallest(target_local_nodes, "to_depot_km").copy()
+
+    if "customer_node_id" in local.columns:
+        local = (
+            local.sort_values("to_depot_km")
+            .drop_duplicates(subset=["customer_node_id"])
+            .copy()
+        )
+    else:
+        local["lat_round"] = local["customer_lat"].round(4)
+        local["lon_round"] = local["customer_lon"].round(4)
+        local = (
+            local.sort_values("to_depot_km")
+            .drop_duplicates(subset=["lat_round", "lon_round"])
+            .copy()
+        )
+        local = local.drop(columns=["lat_round", "lon_round"], errors="ignore")
+
+    local = local.sort_values("to_depot_km").copy()
+
+    # Hard geometric cap
+    local = local[local["to_depot_km"] <= local_cap_km].copy()
+
+    # Refill from same depot if the cap/radius made the pool too small
+    if len(local) < target_local_nodes:
+        refill = depot_cluster.sort_values("to_depot_km").copy()
+        refill = refill.head(max(target_local_nodes, max_total_stops * 2)).copy()
+
+        if "customer_node_id" in refill.columns:
+            refill = (
+                refill.sort_values("to_depot_km")
+                .drop_duplicates(subset=["customer_node_id"])
+                .copy()
+            )
+
+        local = refill.copy()
+
+    # Absolute fallback: still same depot, just larger pull
+    if len(local) < num_representatives:
+        refill_target = max(max_total_stops * 4, num_representatives * 6)
+        refill = depot_cluster.nsmallest(refill_target, "to_depot_km").copy()
+
+        if "customer_node_id" in refill.columns:
+            refill = (
+                refill.sort_values("to_depot_km")
+                .drop_duplicates(subset=["customer_node_id"])
+                .copy()
+            )
+
+        local = refill.copy()
+
+    print(f"chosen preview depot: ({depot_lat}, {depot_lon})")
+    print(f"chosen local preview stop count before rep assignment: {len(local)}")
+    print(
+        f"chosen local max distance from depot: "
+        f"{float(local['to_depot_km'].max()) if not local.empty else 0.0:.2f} km"
+    )
+    print(
+        f"final preview local max distance before drop: "
+        f"{float(local['to_depot_km'].max()) if not local.empty else 0.0:.2f} km"
+    )
+
+    print(f"local rows after all fallback stages: {len(local)}")
+    if "agent_id" in local.columns:
+        print(
+            "distinct agent_id in local:",
+            local["agent_id"]
+            .astype(str)
+            .replace({"": "UNKNOWN", "nan": "UNKNOWN", "None": "UNKNOWN"})
+            .nunique(),
+        )
+    if "customer_node_id" in local.columns:
+        print(f"distinct customer_node_id in local: {local['customer_node_id'].nunique()}")
+
+    local = local.drop(columns=["to_depot_km"], errors="ignore").copy()
+
+    available_nodes = len(local)
+    max_reps_by_density = max(1, available_nodes // max(1, min_nodes_per_rep))
+    effective_reps = min(num_representatives, max_reps_by_density)
+    effective_reps = min(effective_reps, available_nodes)
+
+    if effective_reps < num_representatives:
+        print(
+            f"requested reps {num_representatives} reduced to {effective_reps} "
+            f"to preserve at least {min_nodes_per_rep} nodes per rep"
+        )
+
+    if use_existing_agents:
+        preview_assigned = assign_preview_rep_ids_from_agent(
+            local,
+            effective_reps,
+            max_total_stops=max_total_stops,
+            strict_existing_agents=strict_existing_agents,
+        )
+        if not preview_assigned.empty and preview_assigned["rep_id"].nunique() > 0:
+            return preview_assigned
+
+    preview_assigned = assign_preview_rep_ids_uneven(local, effective_reps)
     return preview_assigned
 
 def preview_summary_from_assign_df(assign_df: pd.DataFrame) -> Dict[str, Any]:
     if assign_df.empty:
         return {
-            "selectionStrategy": "single-depot nearest-customer compact preview",
+            "selectionStrategy": "single-depot high-node local preview",
             "maxRoutes": 0,
             "maxTotalStops": 0,
             "maxDistanceFromDepotKm": 0.0,
@@ -2978,10 +2953,10 @@ def run_baseline(req: BaselineRequest) -> Dict[str, Any]:
     if not payload:
         raise HTTPException(status_code=404, detail="Dataset not found.")
     
-    if req.num_representatives < 5 or req.num_representatives > 20:
+    if req.num_representatives < 4 or req.num_representatives > 15:
         raise HTTPException(
             status_code=400,
-            detail="Number of representatives must be between 5 and 20."
+            detail="Number of representatives must be between 4 and 15."
         )
         
     profile = get_run_profile(req.run_profile)
@@ -2998,16 +2973,12 @@ def run_baseline(req: BaselineRequest) -> Dict[str, Any]:
     routing_df = build_routing_nodes(df)
     print(f"routing_df built: {len(routing_df)} node rows")
 
-    if DEMO_PREVIEW_DEPOTS.get(payload["datasetRole"]):
-        routing_df = filter_df_to_demo_depot(
-            routing_df,
-            payload["datasetRole"],
-            min_nodes=MIN_FIXED_DEMO_NODES,
-            min_agents=MIN_FIXED_DEMO_AGENTS,
-        )
-        print(f"routing_df after demo depot filter: {len(routing_df)} node rows")
-    else:
-        print("no fixed demo depot override; using automatic best-depot selection")
+    routing_df = filter_df_to_demo_depot(
+        routing_df,
+        payload["datasetRole"],
+        min_nodes=MIN_FIXED_DEMO_NODES,
+        min_agents=MIN_FIXED_DEMO_AGENTS,
+    )
     print(f"routing_df after demo depot filter: {len(routing_df)} node rows")
 
     role = payload["datasetRole"]
@@ -3019,28 +2990,36 @@ def run_baseline(req: BaselineRequest) -> Dict[str, Any]:
         else "Generic uploaded dataset workflow"
     )
 
-    preview_max_total_stops = max(
-        profile["preview_max_total_stops"],
-        req.num_representatives * 8,
-        80,
+    preview_max_total_stops = (
+        max(profile["preview_max_total_stops"], 40)
+        if role == "comparative_template"
+        else profile["preview_max_total_stops"]
     )
 
-    preview_df = build_local_preview_subset(
-        routing_df,
-        num_representatives=req.num_representatives,
-        max_total_stops=preview_max_total_stops,
-        initial_radius_km=profile["preview_initial_radius_km"],
-        max_radius_km=profile["preview_max_radius_km"],
-        local_cap_km=profile["preview_local_cap_km"],
-        use_existing_agents=(role in {"primary_reconstruction", "comparative_template"}),
-        strict_existing_agents=(role == "comparative_template"),
+    if role == "primary_reconstruction":
+        preview_df = build_local_preview_subset_amazon(
+            routing_df,
+            num_representatives=req.num_representatives,
+            max_total_stops=preview_max_total_stops,
+            initial_radius_km=profile["preview_initial_radius_km"],
+            max_radius_km=profile["preview_max_radius_km"],
+            local_cap_km=profile["preview_local_cap_km"],
+            use_existing_agents=False,
+            strict_existing_agents=False,
+            min_nodes_per_rep=4,
     )
-
+    else:
+        preview_df = build_local_preview_subset(
+            routing_df,
+            num_representatives=req.num_representatives,
+            max_total_stops=preview_max_total_stops,
+            initial_radius_km=profile["preview_initial_radius_km"],
+            max_radius_km=profile["preview_max_radius_km"],
+            local_cap_km=profile["preview_local_cap_km"],
+            use_existing_agents=(role in {"primary_reconstruction", "comparative_template"}),
+            strict_existing_agents=(role in {"primary_reconstruction", "comparative_template"}),
+    )
     print(f"preview_df built: {len(preview_df)} rows")
-    print(
-        "distinct preview reps:",
-        int(preview_df["rep_id"].nunique()) if "rep_id" in preview_df.columns else 0,
-    )
 
     preview_df = ensure_preview_node_ids(preview_df)
     depot_lat = float(preview_df.iloc[0]["depot_lat"])
@@ -3060,7 +3039,7 @@ def run_baseline(req: BaselineRequest) -> Dict[str, Any]:
     print(
         preview_df[["customer_node_id", "customer_name", "debug_to_depot_km"]]
         .sort_values("debug_to_depot_km", ascending=False)
-        .head(50)
+        .head(12)
     )
     print("max preview distance from depot:", float(preview_df["debug_to_depot_km"].max()))
     preview_matrix = build_preview_distance_matrix(preview_df, osm_threshold_km=profile["preview_osm_threshold_km"],)
@@ -3271,6 +3250,7 @@ def run_enhanced(req: EnhancedRequest) -> Dict[str, Any]:
     if not baseline_payload:
         raise HTTPException(status_code=404, detail="Baseline run not found.")
 
+    role = dataset_payload["datasetRole"]
     baseline_profile = baseline_payload.get("profile", get_run_profile(None))
     profile = get_run_profile(req.run_profile or baseline_profile.get("profile_name"))
 
@@ -3318,6 +3298,8 @@ def run_enhanced(req: EnhancedRequest) -> Dict[str, Any]:
     assign_df = baseline_payload["assign_df"].copy()
     print(f"enhanced assign_df rows: {len(assign_df)}")
 
+    is_zomato_mode = (role == "comparative_template")
+
     improved_df, logs = enhance_assignment(
         assign_df,
         baseline_req.avg_speed_kmph,
@@ -3330,6 +3312,7 @@ def run_enhanced(req: EnhancedRequest) -> Dict[str, Any]:
         effective_max_iterations,
         effective_border_fraction,
         distance_matrix,
+        is_zomato_mode=is_zomato_mode,
     )
     print("enhance_assignment done")
 
@@ -3365,9 +3348,8 @@ def run_enhanced(req: EnhancedRequest) -> Dict[str, Any]:
         notes=[
             role_note,
             "Baseline-seeded DEQ rebalancing",
-            "Priority scoring follows PS = alpha(Delta T) + beta(1 - Rating)",
-            "DEQ trigger uses priority-score variance with workload-gap safeguard",
-            "Final move acceptance still protects workload balance, distance, and operational time",
+            "Priority scoring uses alpha/beta for time difference and rating",
+            "Joint acceptance on workload balance, distance, and operational time",
             f"Accepted rebalances: {sum(1 for x in logs if x.get('accepted'))}",
         ],
         assign_df=improved_df,
