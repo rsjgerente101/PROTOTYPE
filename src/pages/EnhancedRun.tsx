@@ -282,7 +282,7 @@ const EnhancedRun: React.FC = () => {
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
-                      <div>
+                      {/* <div>
                         <label className="block text-xs font-medium text-gray-600 mb-2">
                           Max Iterations
                         </label>
@@ -312,7 +312,7 @@ const EnhancedRun: React.FC = () => {
                             }))
                           }
                         />
-                      </div>
+                      </div> */}
                     </div>
 
                     <Button
