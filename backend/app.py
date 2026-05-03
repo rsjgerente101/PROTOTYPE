@@ -84,20 +84,18 @@ RUN_PROFILES: Dict[str, Dict[str, Any]] = {
 }
 
 DEMO_PREVIEW_DEPOTS: Dict[str, Optional[str]] = {
-    "primary_reconstruction": "DEPOT-244",   # Amazon demo depot
+    "primary_reconstruction": "DEPOT-130",   # Amazon demo depot
     "comparative_template": "DEPOT-153",     # set this to your chosen Zomato depot ID
     "generic_uploaded_dataset": None,
 }
 
 MIN_FIXED_DEMO_NODES = 12
 MIN_FIXED_DEMO_AGENTS = 6
-<<<<<<< HEAD
-=======
 AMAZON_FIXED_DEMO_NODES = 0
 AMAZON_FIXED_DEMO_AGENTS = 0
 AMAZON_DEFAULT_REPRESENTATIVES = 6
-AMAZON_MIN_PREVIEW_STOPS = 60
->>>>>>> 41069fe (Remove Amazon-specific 3 cap ustomer)
+AMAZON_MAX_CUSTOMERS_PER_REP = 3
+AMAZON_MIN_PREVIEW_STOPS = AMAZON_DEFAULT_REPRESENTATIVES * AMAZON_MAX_CUSTOMERS_PER_REP
 
 class FieldMapping(BaseModel):
     depot_id: Optional[str] = None
@@ -785,6 +783,72 @@ def build_routing_nodes(df: pd.DataFrame) -> pd.DataFrame:
     agg["node_name"] = agg["customer_name"]
 
     return agg.reset_index(drop=True)
+
+
+def build_amazon_order_routing_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Amazon preview routing should preserve order-level rows instead of collapsing
+    repeated customer_node_id values into only 12 physical nodes per depot.
+
+    The original customer_node_id is retained as physical_customer_node_id, while
+    customer_node_id is made unique per order so each row can appear as a route stop.
+    """
+    work = df.copy()
+
+    if "is_routing_eligible" in work.columns:
+        work = work[work["is_routing_eligible"] == True].copy()
+
+    required = [
+        "depot_id", "depot_lat", "depot_lon",
+        "customer_node_id", "customer_lat", "customer_lon",
+        "customer_name", "observed_eta_min", "predicted_eta_min", "rating", "area",
+        "order_id", "customer_id", "agent_id",
+    ]
+    missing = [c for c in required if c not in work.columns]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing Amazon routing columns: {missing}")
+
+    if "node_order_count" not in work.columns:
+        work["node_order_count"] = 1
+    if "direct_depot_customer_km" not in work.columns:
+        work["direct_depot_customer_km"] = work.apply(
+            lambda r: haversine_km(
+                float(r["depot_lat"]),
+                float(r["depot_lon"]),
+                float(r["customer_lat"]),
+                float(r["customer_lon"]),
+            ),
+            axis=1,
+        )
+    if "order_date" not in work.columns:
+        work["order_date"] = pd.NaT
+
+    out = work[
+        [
+            "depot_id", "depot_lat", "depot_lon",
+            "customer_node_id", "customer_lat", "customer_lon",
+            "order_id", "order_date", "customer_id", "agent_id",
+            "customer_name", "observed_eta_min", "predicted_eta_min", "rating", "area",
+            "node_order_count", "direct_depot_customer_km",
+        ]
+    ].copy()
+
+    out["physical_customer_node_id"] = out["customer_node_id"].astype(str)
+    out["order_id"] = out["order_id"].astype(str)
+    out["customer_id"] = out["customer_id"].astype(str)
+    out["agent_id"] = out["agent_id"].astype(str).replace({"": "UNKNOWN", "nan": "UNKNOWN", "None": "UNKNOWN"})
+    out["depot_id"] = out["depot_id"].astype(str)
+
+    # Unique route stop ID: avoids the old 12-node Amazon collapse while still
+    # showing where repeated orders share the same physical customer node.
+    out["customer_node_id"] = (
+        out["physical_customer_node_id"].astype(str)
+        + "-ORDER-"
+        + out["order_id"].astype(str)
+    )
+    out["node_name"] = out["customer_name"].astype(str)
+
+    return out.reset_index(drop=True)
 
 
 def read_csv_upload(file: UploadFile) -> pd.DataFrame:
@@ -2087,6 +2151,164 @@ def enhance_assignment(
 
     return current, logs
 
+
+def amazon_distance_polish_assignment(
+    assign_df: pd.DataFrame,
+    speed_kmph: float,
+    service_min: float,
+    distance_matrix: Dict[str, Dict[str, float]],
+    max_iterations: int = 12,
+    min_distance_gain_km: float = 0.25,
+    min_fairness_floor: float = 0.995,
+    max_wbi_increase: float = 0.0,
+) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
+    """
+    Amazon-only final improvement pass.
+
+    The normal DEQ pass prioritizes fairness first. For Amazon, fairness often reaches
+    ~1.00 quickly, so strict fairness-gain rules can reject distance-improving moves.
+    This pass only runs for the Amazon role and accepts a move when it reduces
+    distance/time while keeping fairness very high and workload balance within a
+    small tolerance.
+    """
+    current = ensure_preview_node_ids(assign_df.copy()).reset_index(drop=True)
+    logs: List[Dict[str, Any]] = []
+    current_eval = evaluate_assignment(current, speed_kmph, service_min, distance_matrix)
+
+    for iteration in range(1, max_iterations + 1):
+        rep_ids = [str(x) for x in current["rep_id"].dropna().unique().tolist()]
+        if len(rep_ids) < 2:
+            break
+
+        best_trial = None
+        best_eval = None
+        best_log = None
+        best_score = 0.0
+
+        # 1) Try distance-improving transfers.
+        for idx, row in current.iterrows():
+            source_rep = str(row["rep_id"])
+            if int((current["rep_id"] == source_rep).sum()) <= 2:
+                continue
+
+            for target_rep in rep_ids:
+                if target_rep == source_rep:
+                    continue
+
+                trial = current.copy()
+                trial.loc[idx, "rep_id"] = target_rep
+                trial_eval = evaluate_assignment(trial, speed_kmph, service_min, distance_matrix)
+
+                distance_gain = current_eval["total"]["distance_km"] - trial_eval["total"]["distance_km"]
+                time_gain = current_eval["total"]["operational_minutes"] - trial_eval["total"]["operational_minutes"]
+                wbi_increase = trial_eval["wbi"] - current_eval["wbi"]
+
+                if distance_gain < min_distance_gain_km:
+                    continue
+                if time_gain < -1e-6:
+                    continue
+                if trial_eval["fairness"] < min_fairness_floor:
+                    continue
+                # WBI is sigma/mu, so lower is better. Do not accept an Amazon polish
+                # move that makes WBI worse, even if distance improves.
+                if wbi_increase > max_wbi_increase + 1e-9:
+                    continue
+
+                wbi_gain = current_eval["wbi"] - trial_eval["wbi"]
+                score = distance_gain + (time_gain / 60.0) + max(0.0, wbi_gain * 20.0)
+                if score > best_score:
+                    best_score = score
+                    best_trial = trial
+                    best_eval = trial_eval
+                    best_log = {
+                        "iteration": iteration,
+                        "move_type": "amazon_distance_transfer",
+                        "moved_order": str(current.loc[idx, "order_id"]),
+                        "from_rep": source_rep,
+                        "to_rep": target_rep,
+                        "fairness_before": round(current_eval["fairness"], 6),
+                        "fairness_after": round(trial_eval["fairness"], 6),
+                        "distance_before": round(current_eval["total"]["distance_km"], 2),
+                        "distance_after": round(trial_eval["total"]["distance_km"], 2),
+                        "operational_before": round(current_eval["total"]["operational_minutes"], 2),
+                        "operational_after": round(trial_eval["total"]["operational_minutes"], 2),
+                        "distance_gain": round(distance_gain, 4),
+                        "time_gain": round(time_gain, 4),
+                        "wbi_before_pct": round(current_eval["wbi"] * 100.0, 2),
+                        "wbi_after_pct": round(trial_eval["wbi"] * 100.0, 2),
+                        "wbi_gain_pct": round((current_eval["wbi"] - trial_eval["wbi"]) * 100.0, 2),
+                        "accepted": True,
+                    }
+
+        # 2) Try swaps too, because swaps usually preserve workload balance better.
+        for idx_a in range(len(current)):
+            rep_a = str(current.loc[idx_a, "rep_id"])
+            for idx_b in range(idx_a + 1, len(current)):
+                rep_b = str(current.loc[idx_b, "rep_id"])
+                if rep_a == rep_b:
+                    continue
+
+                trial = current.copy()
+                trial.loc[idx_a, "rep_id"] = rep_b
+                trial.loc[idx_b, "rep_id"] = rep_a
+                trial_eval = evaluate_assignment(trial, speed_kmph, service_min, distance_matrix)
+
+                distance_gain = current_eval["total"]["distance_km"] - trial_eval["total"]["distance_km"]
+                time_gain = current_eval["total"]["operational_minutes"] - trial_eval["total"]["operational_minutes"]
+                wbi_increase = trial_eval["wbi"] - current_eval["wbi"]
+
+                if distance_gain < min_distance_gain_km:
+                    continue
+                if time_gain < -1e-6:
+                    continue
+                if trial_eval["fairness"] < min_fairness_floor:
+                    continue
+                # WBI is sigma/mu, so lower is better. Do not accept an Amazon polish
+                # move that makes WBI worse, even if distance improves.
+                if wbi_increase > max_wbi_increase + 1e-9:
+                    continue
+
+                wbi_gain = current_eval["wbi"] - trial_eval["wbi"]
+                score = distance_gain + (time_gain / 60.0) + max(0.0, wbi_gain * 20.0)
+                if score > best_score:
+                    best_score = score
+                    best_trial = trial
+                    best_eval = trial_eval
+                    best_log = {
+                        "iteration": iteration,
+                        "move_type": "amazon_distance_swap",
+                        "moved_order": str(current.loc[idx_a, "order_id"]),
+                        "swapped_with_order": str(current.loc[idx_b, "order_id"]),
+                        "from_rep": rep_a,
+                        "to_rep": rep_b,
+                        "fairness_before": round(current_eval["fairness"], 6),
+                        "fairness_after": round(trial_eval["fairness"], 6),
+                        "distance_before": round(current_eval["total"]["distance_km"], 2),
+                        "distance_after": round(trial_eval["total"]["distance_km"], 2),
+                        "operational_before": round(current_eval["total"]["operational_minutes"], 2),
+                        "operational_after": round(trial_eval["total"]["operational_minutes"], 2),
+                        "distance_gain": round(distance_gain, 4),
+                        "time_gain": round(time_gain, 4),
+                        "wbi_before_pct": round(current_eval["wbi"] * 100.0, 2),
+                        "wbi_after_pct": round(trial_eval["wbi"] * 100.0, 2),
+                        "wbi_gain_pct": round((current_eval["wbi"] - trial_eval["wbi"]) * 100.0, 2),
+                        "accepted": True,
+                    }
+
+        if best_trial is None or best_eval is None:
+            break
+
+        current = best_trial.reset_index(drop=True)
+        current_eval = best_eval
+        logs.append(best_log)
+
+    if logs:
+        print("amazon distance polish accepted moves:", len(logs))
+        print("amazon distance polish logs:", logs)
+
+    return current, logs
+
+
 def select_spatially_spread_rows(
     df: pd.DataFrame,
     target_n: int,
@@ -2144,8 +2366,9 @@ def select_spatially_spread_rows(
 def assign_preview_rep_ids_from_agent(
     preview_df: pd.DataFrame,
     num_representatives: int,
-    max_total_stops: int,
+    max_total_stops: Optional[int] = None,
     strict_existing_agents: bool = False,
+    cap_total_stops: bool = True,
 ) -> pd.DataFrame:
     if preview_df.empty:
         return preview_df.copy()
@@ -2179,6 +2402,7 @@ def assign_preview_rep_ids_from_agent(
             )
             return assign_preview_rep_ids_uneven(work, num_representatives)
         top_agents = unique_agents[:num_representatives]
+
     filtered = valid[valid["agent_id"].isin(top_agents)].copy()
 
     if len(filtered) < num_representatives:
@@ -2187,12 +2411,8 @@ def assign_preview_rep_ids_from_agent(
             f"{num_representatives} requested reps."
         )
         if strict_existing_agents:
-            # keep real-agent assignment even if fewer reps survive
             filtered["rep_id"] = filtered["agent_id"].astype(str)
             return filtered.drop(columns=["to_depot_km"], errors="ignore").reset_index(drop=True)
-        return assign_preview_rep_ids_uneven(work, num_representatives)
-
-    if filtered.empty:
         return assign_preview_rep_ids_uneven(work, num_representatives)
 
     filtered["to_depot_km"] = filtered.apply(
@@ -2207,7 +2427,9 @@ def assign_preview_rep_ids_from_agent(
 
     filtered = filtered.sort_values(["agent_id", "to_depot_km"]).copy()
 
-    if len(filtered) > max_total_stops:
+    # Zomato/default preview can still cap rows. Amazon calls this with
+    # cap_total_stops=False so all selected local order rows survive.
+    if cap_total_stops and max_total_stops is not None and len(filtered) > max_total_stops:
         counts = filtered["agent_id"].value_counts()
         total = counts.sum()
 
@@ -2526,27 +2748,6 @@ def build_local_preview_subset(
         radius *= 1.5
         local = depot_cluster[depot_cluster["to_depot_km"] <= radius].copy()
 
-    target_local_nodes = max(max_total_stops, num_representatives * min_nodes_per_rep)
-
-    if local.empty:
-        local = depot_cluster.nsmallest(target_local_nodes, "to_depot_km").copy()
-    else:
-        local = local.nsmallest(target_local_nodes, "to_depot_km").copy()
-
-    if "customer_node_id" in local.columns:
-        local = local.sort_values("to_depot_km").drop_duplicates(subset=["customer_node_id"]).copy()
-    else:
-        local["lat_round"] = local["customer_lat"].round(4)
-        local["lon_round"] = local["customer_lon"].round(4)
-        local = local.sort_values("to_depot_km").drop_duplicates(subset=["lat_round", "lon_round"]).copy()
-        local = local.drop(columns=["lat_round", "lon_round"], errors="ignore")
-
-    # IMPORTANT:
-    # for preview mode, keep the nearest local stops only.
-    # do not spatially spread them outward.
-    local = local.sort_values("to_depot_km").copy()
-
-    # Hard cap for local preview geometry
     local = local[local["to_depot_km"] <= local_cap_km].copy()
 
     if use_existing_agents:
@@ -2612,6 +2813,7 @@ def build_local_preview_subset(
             max(max_total_stops * 4, num_representatives * 5)
         ).copy()
 
+
     print(f"chosen preview depot: ({depot_lat}, {depot_lon})")
     print(f"chosen local preview stop count before rep assignment: {len(local)}")
     print(f"chosen local max distance from depot: {float(local['to_depot_km'].max()) if not local.empty else 0.0:.2f} km")
@@ -2658,32 +2860,6 @@ def build_local_preview_subset(
 def build_local_preview_subset_amazon(
     df: pd.DataFrame,
     num_representatives: int,
-<<<<<<< HEAD
-    max_total_stops: int = 12,
-    initial_radius_km: float = 7.0,
-    max_radius_km: float = 16.0,
-    local_cap_km: float = 14.0,
-    use_existing_agents: bool = False,
-    strict_existing_agents: bool = False,
-    min_nodes_per_rep: int = 4,
-) -> pd.DataFrame:
-    """
-    Amazon-specific preview builder.
-
-    Differences from the original Zomato-safe preview builder:
-    - does NOT use order_date filtering
-    - does NOT strongly preserve real agent_id assignments
-    - can reduce effective reps to maintain a minimum node density
-    - prefers a denser preview for supplementary Amazon demonstration
-    """
-    work = df.copy()
-
-    depot_lat, depot_lon, depot_cluster = choose_best_local_depot_cluster(
-        work,
-        candidate_pool_size=max(max_total_stops, num_representatives * 3),
-        prefer_agent_coverage=False,
-        min_agents=num_representatives,
-=======
     max_total_stops: Optional[int] = None,
     initial_radius_km: float = 25.0,
     max_radius_km: float = 120.0,
@@ -2691,32 +2867,38 @@ def build_local_preview_subset_amazon(
     use_existing_agents: bool = True,
     strict_existing_agents: bool = True,
     min_nodes_per_rep: int = 1,
+    max_customers_per_rep: Optional[int] = AMAZON_MAX_CUSTOMERS_PER_REP,
 ) -> pd.DataFrame:
     """
-    Amazon-specific preview builder without the old max-3-per-rep cap.
+    Amazon-specific preview builder with stronger agent-based clustering.
+
+    This keeps the Zomato-style idea of preserving agent_id as rep_id, but adds
+    an Amazon-only customer selection cap so one agent does not receive too many
+    preview customers/orders.
 
     Amazon behavior:
     - uses only Amazon logic; Zomato flow is untouched
     - preserves order-level Amazon stops instead of collapsing to 12 physical nodes
     - preserves agent_id as rep_id
-    - selects the strongest 6 agent groups from one depot
-    - does not limit each selected agent to 3 customers/orders
-    - keeps the total preview size controlled by max_total_stops/profile setting
+    - selects the strongest 6 agent clusters from one depot
+    - keeps at most AMAZON_MAX_CUSTOMERS_PER_REP customers/orders per selected rep
+    - within each selected agent, keeps the best compact customers first
     """
     work = df.copy()
 
     effective_reps = max(AMAZON_DEFAULT_REPRESENTATIVES, int(num_representatives))
-    target_preview_rows = max(
-        int(max_total_stops or AMAZON_MIN_PREVIEW_STOPS),
-        effective_reps * max(2, int(min_nodes_per_rep)),
-    )
+    per_rep_cap = int(max_customers_per_rep or AMAZON_MAX_CUSTOMERS_PER_REP)
+    per_rep_cap = max(1, per_rep_cap)
+
+    # Total Amazon preview size is controlled by reps × cap.
+    # This prevents one selected Amazon agent from carrying too many stops.
+    target_preview_rows = effective_reps * per_rep_cap
 
     depot_lat, depot_lon, depot_cluster = choose_best_local_depot_cluster(
         work,
-        candidate_pool_size=max(target_preview_rows * 3, effective_reps * 10),
+        candidate_pool_size=max(target_preview_rows * 4, effective_reps * 8),
         prefer_agent_coverage=True,
         min_agents=effective_reps,
->>>>>>> 41069fe (Remove Amazon-specific 3 cap ustomer)
     )
 
     print(f"chosen preview depot: ({depot_lat}, {depot_lon})")
@@ -2734,126 +2916,30 @@ def build_local_preview_subset_amazon(
     radius = initial_radius_km
     local = depot_cluster[depot_cluster["to_depot_km"] <= radius].copy()
 
-    while len(local) < max_total_stops and radius < max_radius_km:
+    while len(local) < target_preview_rows and radius < max_radius_km:
         radius *= 1.5
         local = depot_cluster[depot_cluster["to_depot_km"] <= radius].copy()
 
-<<<<<<< HEAD
-    target_local_nodes = max(
-        max_total_stops,
-        num_representatives * min_nodes_per_rep,
-    )
-
-    if local.empty:
-        local = depot_cluster.nsmallest(target_local_nodes, "to_depot_km").copy()
-    else:
-        local = local.nsmallest(target_local_nodes, "to_depot_km").copy()
-
-    if "customer_node_id" in local.columns:
-        local = (
-            local.sort_values("to_depot_km")
-            .drop_duplicates(subset=["customer_node_id"])
-            .copy()
-        )
-    else:
-        local["lat_round"] = local["customer_lat"].round(4)
-        local["lon_round"] = local["customer_lon"].round(4)
-        local = (
-            local.sort_values("to_depot_km")
-            .drop_duplicates(subset=["lat_round", "lon_round"])
-            .copy()
-        )
-        local = local.drop(columns=["lat_round", "lon_round"], errors="ignore")
-=======
-    # Keep the cluster local. If the radius/cap is too restrictive, refill from
-    # the same chosen depot only, sorted by compactness.
+    # Keep the cluster local. If the cap is too restrictive, refill from the same
+    # depot only, still sorted by compactness.
     local = local[local["to_depot_km"] <= local_cap_km].copy()
     if len(local) < target_preview_rows:
-        local = depot_cluster.sort_values("to_depot_km").head(target_preview_rows * 3).copy()
->>>>>>> 41069fe (Remove Amazon-specific 3 cap ustomer)
+        local = depot_cluster.sort_values("to_depot_km").head(target_preview_rows * 5).copy()
 
     local = local.sort_values("to_depot_km").copy()
 
-    # Hard geometric cap
-    local = local[local["to_depot_km"] <= local_cap_km].copy()
 
-    # Refill from same depot if the cap/radius made the pool too small
-    if len(local) < target_local_nodes:
-        refill = depot_cluster.sort_values("to_depot_km").copy()
-        refill = refill.head(max(target_local_nodes, max_total_stops * 2)).copy()
-
-        if "customer_node_id" in refill.columns:
-            refill = (
-                refill.sort_values("to_depot_km")
-                .drop_duplicates(subset=["customer_node_id"])
-                .copy()
-            )
-
-        local = refill.copy()
-
-    # Absolute fallback: still same depot, just larger pull
-    if len(local) < num_representatives:
-        refill_target = max(max_total_stops * 4, num_representatives * 6)
-        refill = depot_cluster.nsmallest(refill_target, "to_depot_km").copy()
-
-        if "customer_node_id" in refill.columns:
-            refill = (
-                refill.sort_values("to_depot_km")
-                .drop_duplicates(subset=["customer_node_id"])
-                .copy()
-            )
-
-        local = refill.copy()
-
-    print(f"chosen preview depot: ({depot_lat}, {depot_lon})")
-    print(f"chosen local preview stop count before rep assignment: {len(local)}")
-    print(
-        f"chosen local max distance from depot: "
-        f"{float(local['to_depot_km'].max()) if not local.empty else 0.0:.2f} km"
-    )
-    print(
-        f"final preview local max distance before drop: "
-        f"{float(local['to_depot_km'].max()) if not local.empty else 0.0:.2f} km"
-    )
-
-    print(f"local rows after all fallback stages: {len(local)}")
     if "agent_id" in local.columns:
-        print(
-            "distinct agent_id in local:",
-            local["agent_id"]
-            .astype(str)
-            .replace({"": "UNKNOWN", "nan": "UNKNOWN", "None": "UNKNOWN"})
-            .nunique(),
-        )
-    if "customer_node_id" in local.columns:
-        print(f"distinct customer_node_id in local: {local['customer_node_id'].nunique()}")
-
-    local = local.drop(columns=["to_depot_km"], errors="ignore").copy()
-
-    available_nodes = len(local)
-    max_reps_by_density = max(1, available_nodes // max(1, min_nodes_per_rep))
-    effective_reps = min(num_representatives, max_reps_by_density)
-    effective_reps = min(effective_reps, available_nodes)
-
-    if effective_reps < num_representatives:
-        print(
-            f"requested reps {num_representatives} reduced to {effective_reps} "
-            f"to preserve at least {min_nodes_per_rep} nodes per rep"
+        local["agent_id"] = local["agent_id"].astype(str).fillna("UNKNOWN")
+        local["agent_id"] = local["agent_id"].replace(
+            {"": "UNKNOWN", "nan": "UNKNOWN", "None": "UNKNOWN"}
         )
 
-    if use_existing_agents:
-        preview_assigned = assign_preview_rep_ids_from_agent(
-            local,
-            effective_reps,
-            max_total_stops=max_total_stops,
-            strict_existing_agents=strict_existing_agents,
-        )
-        if not preview_assigned.empty and preview_assigned["rep_id"].nunique() > 0:
-            return preview_assigned
+        valid_local = local[local["agent_id"] != "UNKNOWN"].copy()
 
-<<<<<<< HEAD
-=======
         if not valid_local.empty:
+            # Score each Amazon agent cluster. This avoids simply taking the agents
+            # with the most orders, which can create too many customers per rep.
             agent_summary_rows: List[Dict[str, Any]] = []
             for agent_id, grp in valid_local.groupby("agent_id"):
                 grp = grp.copy()
@@ -2868,9 +2954,9 @@ def build_local_preview_subset_amazon(
                 mean_eta = float(pd.to_numeric(grp["predicted_eta_min"], errors="coerce").fillna(0).mean())
                 mean_rating = float(pd.to_numeric(grp["rating"], errors="coerce").fillna(4.0).mean())
 
-                # Prefer agents with enough available rows, compact stops,
-                # reasonable ETA, and good rating. No per-rep max-3 cap here.
-                shortage = 1 if rows < max(1, min_nodes_per_rep) else 0
+                # Prefer agents with enough rows for the cap, compact stops, and
+                # good quality. Do not over-prefer huge groups.
+                shortage = max(0, per_rep_cap - rows)
                 agent_summary_rows.append({
                     "agent_id": str(agent_id),
                     "rows": rows,
@@ -2881,7 +2967,7 @@ def build_local_preview_subset_amazon(
                     "mean_rating": mean_rating,
                     "score": (
                         shortage,
-                        -rows,
+                        -min(rows, per_rep_cap),
                         mean_dist,
                         max_dist,
                         mean_eta,
@@ -2893,85 +2979,94 @@ def build_local_preview_subset_amazon(
             agent_summary = agent_summary.sort_values("score").reset_index(drop=True)
             top_agents = agent_summary.head(effective_reps)["agent_id"].astype(str).tolist()
 
-            selected = valid_local[valid_local["agent_id"].astype(str).isin(top_agents)].copy()
-            selected["_pred_eta_sort"] = pd.to_numeric(
-                selected["predicted_eta_min"], errors="coerce"
-            ).fillna(selected["to_depot_km"] * 3.0 + 8.0)
-            selected["_rating_sort"] = pd.to_numeric(
-                selected["rating"], errors="coerce"
-            ).fillna(4.0)
+            selected_parts: List[pd.DataFrame] = []
+            for agent_id in top_agents:
+                grp = valid_local[valid_local["agent_id"].astype(str) == str(agent_id)].copy()
 
-            selected = selected.sort_values(
-                ["agent_id", "to_depot_km", "_pred_eta_sort", "_rating_sort"],
-                ascending=[True, True, True, False],
-            ).copy()
+                # Keep best customers/orders per selected agent:
+                # nearby first, then lower predicted ETA, then higher rating.
+                grp["_pred_eta_sort"] = pd.to_numeric(
+                    grp["predicted_eta_min"], errors="coerce"
+                ).fillna(grp["to_depot_km"] * 3.0 + 8.0)
+                grp["_rating_sort"] = pd.to_numeric(
+                    grp["rating"], errors="coerce"
+                ).fillna(4.0)
 
-            # Control only the total Amazon preview size, not the per-rep size.
-            # This allows naturally uneven agent workloads for the DEQ process.
-            if len(selected) > target_preview_rows:
-                counts = selected["agent_id"].value_counts()
-                total = int(counts.sum())
-                allocations: Dict[str, int] = {}
+                grp = grp.sort_values(
+                    ["to_depot_km", "_pred_eta_sort", "_rating_sort"],
+                    ascending=[True, True, False],
+                )
 
-                for agent_id, cnt in counts.items():
-                    share = max(1, int(round((int(cnt) / max(1, total)) * target_preview_rows)))
-                    allocations[str(agent_id)] = min(int(cnt), share)
+                # Avoid showing duplicate physical nodes for the same agent unless
+                # there are not enough distinct physical customers.
+                if "physical_customer_node_id" in grp.columns:
+                    distinct_first = grp.drop_duplicates(subset=["physical_customer_node_id"]).copy()
+                    if len(distinct_first) >= per_rep_cap:
+                        grp = distinct_first
 
-                allocated_total = sum(allocations.values())
+                selected_parts.append(grp.head(per_rep_cap))
 
-                while allocated_total > target_preview_rows:
-                    for agent_id in sorted(allocations, key=allocations.get, reverse=True):
-                        if allocations[agent_id] > 1 and allocated_total > target_preview_rows:
-                            allocations[agent_id] -= 1
-                            allocated_total -= 1
+            if selected_parts:
+                selected = pd.concat(selected_parts, ignore_index=True)
+                selected["rep_id"] = selected["agent_id"].astype(str)
 
-                while allocated_total < target_preview_rows:
-                    for agent_id, cnt in counts.items():
-                        aid = str(agent_id)
-                        if allocations[aid] < int(cnt) and allocated_total < target_preview_rows:
-                            allocations[aid] += 1
-                            allocated_total += 1
+                # In rare cases, an agent may have fewer than cap rows. Refill from
+                # unselected valid rows without exceeding the per-rep cap.
+                if len(selected) < target_preview_rows:
+                    used_order_ids = set(selected["order_id"].astype(str)) if "order_id" in selected.columns else set()
+                    counts = selected["rep_id"].value_counts().to_dict()
+                    for agent_id in top_agents:
+                        need = per_rep_cap - int(counts.get(agent_id, 0))
+                        if need <= 0:
+                            continue
+                        extra = valid_local[
+                            (valid_local["agent_id"].astype(str) == str(agent_id))
+                            & (~valid_local["order_id"].astype(str).isin(used_order_ids))
+                        ].copy()
+                        if extra.empty:
+                            continue
+                        extra = extra.sort_values("to_depot_km").head(need).copy()
+                        extra["rep_id"] = extra["agent_id"].astype(str)
+                        selected = pd.concat([selected, extra], ignore_index=True)
+                        used_order_ids.update(extra["order_id"].astype(str).tolist())
 
-                selected_parts: List[pd.DataFrame] = []
-                for agent_id in top_agents:
-                    grp = selected[selected["agent_id"].astype(str) == str(agent_id)].copy()
-                    selected_parts.append(grp.head(allocations.get(str(agent_id), 0)))
+                # Final guard: never allow more than max customers/orders per rep.
+                selected = (
+                    selected.sort_values(["rep_id", "to_depot_km"])
+                    .groupby("rep_id", group_keys=False)
+                    .head(per_rep_cap)
+                    .reset_index(drop=True)
+                )
+                print(
+                    "Amazon stronger clustering active; "
+                    f"selected agents: {selected['rep_id'].nunique()}, "
+                    f"max customers/orders per rep: {per_rep_cap}"
+                )
+                print(f"chosen preview depot: ({depot_lat}, {depot_lon})")
+                print(f"chosen local preview stop count before rep assignment: {len(selected)}")
+                print(
+                    f"chosen local max distance from depot: "
+                    f"{float(selected['to_depot_km'].max()) if not selected.empty else 0.0:.2f} km"
+                )
+                print(f"local rows after all fallback stages: {len(selected)}")
+                print(
+                    "customers/orders per selected agent:",
+                    selected["rep_id"].value_counts().to_dict(),
+                )
+                if "customer_node_id" in selected.columns:
+                    print(f"distinct route customer_node_id in local: {selected['customer_node_id'].nunique()}")
+                if "physical_customer_node_id" in selected.columns:
+                    print(f"distinct physical_customer_node_id in local: {selected['physical_customer_node_id'].nunique()}")
 
-                selected = pd.concat(selected_parts, ignore_index=True) if selected_parts else selected.head(0).copy()
-
-            selected["rep_id"] = selected["agent_id"].astype(str)
-
-            print(
-                "Amazon agent-based clustering active without max-3-per-rep cap; "
-                f"selected agents: {selected['rep_id'].nunique()}, "
-                f"target preview stops: {target_preview_rows}"
-            )
-            print(f"chosen preview depot: ({depot_lat}, {depot_lon})")
-            print(f"chosen local preview stop count before rep assignment: {len(selected)}")
-            print(
-                f"chosen local max distance from depot: "
-                f"{float(selected['to_depot_km'].max()) if not selected.empty else 0.0:.2f} km"
-            )
-            print(f"local rows after all fallback stages: {len(selected)}")
-            print(
-                "customers/orders per selected agent:",
-                selected["rep_id"].value_counts().to_dict(),
-            )
-            if "customer_node_id" in selected.columns:
-                print(f"distinct route customer_node_id in local: {selected['customer_node_id'].nunique()}")
-            if "physical_customer_node_id" in selected.columns:
-                print(f"distinct physical_customer_node_id in local: {selected['physical_customer_node_id'].nunique()}")
-
-            return selected.drop(
-                columns=["to_depot_km", "_pred_eta_sort", "_rating_sort"],
-                errors="ignore",
-            ).reset_index(drop=True)
+                return selected.drop(
+                    columns=["to_depot_km", "_pred_eta_sort", "_rating_sort"],
+                    errors="ignore",
+                ).reset_index(drop=True)
 
     # Fallback only if Amazon has no usable agent_id. This is not expected for
     # the reconstructed Amazon dataset, but keeps the backend safe.
     print("Amazon agent_id unavailable; falling back to uneven spatial assignment.")
     local = local.head(target_preview_rows).drop(columns=["to_depot_km"], errors="ignore").copy()
->>>>>>> 41069fe (Remove Amazon-specific 3 cap ustomer)
     preview_assigned = assign_preview_rep_ids_uneven(local, effective_reps)
     return preview_assigned
 
@@ -3141,18 +3236,32 @@ def run_baseline(req: BaselineRequest) -> Dict[str, Any]:
     print("train_eta_models done")
     df["predicted_eta_min"] = predicted_eta
 
-    routing_df = build_routing_nodes(df)
-    print(f"routing_df built: {len(routing_df)} node rows")
+    role = payload["datasetRole"]
+    effective_num_representatives = (
+        max(AMAZON_DEFAULT_REPRESENTATIVES, req.num_representatives)
+        if role == "primary_reconstruction"
+        else req.num_representatives
+    )
+
+    if role == "primary_reconstruction":
+        routing_df = build_amazon_order_routing_rows(df)
+        print(f"amazon order-level routing_df built: {len(routing_df)} order rows")
+    else:
+        routing_df = build_routing_nodes(df)
+        print(f"routing_df built: {len(routing_df)} node rows")
+
+    # Keep Zomato using the original fixed-depot strength check.
+    # Amazon keeps the no-minimum fixed-depot behavior without changing its routing logic.
+    depot_min_nodes = AMAZON_FIXED_DEMO_NODES if role == "primary_reconstruction" else MIN_FIXED_DEMO_NODES
+    depot_min_agents = AMAZON_FIXED_DEMO_AGENTS if role == "primary_reconstruction" else MIN_FIXED_DEMO_AGENTS
 
     routing_df = filter_df_to_demo_depot(
         routing_df,
         payload["datasetRole"],
-        min_nodes=MIN_FIXED_DEMO_NODES,
-        min_agents=MIN_FIXED_DEMO_AGENTS,
+        min_nodes=depot_min_nodes,
+        min_agents=depot_min_agents,
     )
-    print(f"routing_df after demo depot filter: {len(routing_df)} node rows")
-
-    role = payload["datasetRole"]
+    print(f"routing_df after demo depot filter: {len(routing_df)} rows")
     role_note = (
         "Primary Amazon-based reconstructed baseline workflow"
         if role == "primary_reconstruction"
@@ -3164,42 +3273,28 @@ def run_baseline(req: BaselineRequest) -> Dict[str, Any]:
     preview_max_total_stops = (
         max(profile["preview_max_total_stops"], 40)
         if role == "comparative_template"
+        else max(profile["preview_max_total_stops"], AMAZON_MIN_PREVIEW_STOPS)
+        if role == "primary_reconstruction"
         else profile["preview_max_total_stops"]
     )
 
     if role == "primary_reconstruction":
         preview_df = build_local_preview_subset_amazon(
             routing_df,
-            num_representatives=req.num_representatives,
+            num_representatives=effective_num_representatives,
             max_total_stops=preview_max_total_stops,
-            initial_radius_km=profile["preview_initial_radius_km"],
-            max_radius_km=profile["preview_max_radius_km"],
-            local_cap_km=profile["preview_local_cap_km"],
-            use_existing_agents=False,
-            strict_existing_agents=False,
-            min_nodes_per_rep=4,
-        )
-    elif role == "comparative_template":
-        preview_df = build_local_preview_subset(
-            routing_df,
-            num_representatives=req.num_representatives,
-            max_total_stops=max(profile["preview_max_total_stops"], 40),
             initial_radius_km=profile["preview_initial_radius_km"],
             max_radius_km=profile["preview_max_radius_km"],
             local_cap_km=profile["preview_local_cap_km"],
             use_existing_agents=True,
             strict_existing_agents=True,
-<<<<<<< HEAD
-            min_nodes_per_rep=3,
-        )
-=======
             min_nodes_per_rep=1,
+            max_customers_per_rep=AMAZON_MAX_CUSTOMERS_PER_REP,
     )
->>>>>>> 41069fe (Remove Amazon-specific 3 cap ustomer)
     else:
         preview_df = build_local_preview_subset(
             routing_df,
-            num_representatives=req.num_representatives,
+            num_representatives=effective_num_representatives,
             max_total_stops=preview_max_total_stops,
             initial_radius_km=profile["preview_initial_radius_km"],
             max_radius_km=profile["preview_max_radius_km"],
@@ -3259,11 +3354,7 @@ def run_baseline(req: BaselineRequest) -> Dict[str, Any]:
             "Preview mode for UI rendering",
             "Preview restricted to nearest customers within the fixed demo depot",
             "Uses existing agent_id where available; Zomato strongly preserves real agents before any fallback",
-<<<<<<< HEAD
-            f"Preview capped to {preview_max_total_stops} total stops and selected representatives",
-=======
-            f"Preview target: {preview_max_total_stops} stops; Amazon order-level preview is not capped to 12 customer nodes or 3 customers per rep",
->>>>>>> 41069fe (Remove Amazon-specific 3 cap ustomer)
+            f"Preview target: {preview_max_total_stops} stops; Amazon order-level preview is not capped to 12 customer nodes",
             f"Fixed demo depot override: {DEMO_PREVIEW_DEPOTS.get(role) or 'automatic'}",
         ],
         assign_df=preview_df,
@@ -3563,6 +3654,18 @@ def run_enhanced(req: EnhancedRequest) -> Dict[str, Any]:
         distance_matrix,
         is_zomato_mode=is_zomato_mode,
     )
+
+
+    if role == "primary_reconstruction":
+        improved_df, amazon_polish_logs = amazon_distance_polish_assignment(
+            improved_df,
+            baseline_req.avg_speed_kmph,
+            baseline_req.service_minutes_per_stop,
+            distance_matrix,
+            max_iterations=12,
+        )
+        logs.extend(amazon_polish_logs)
+
     print("enhance_assignment done")
 
     routes, rep_df, total = route_all(
