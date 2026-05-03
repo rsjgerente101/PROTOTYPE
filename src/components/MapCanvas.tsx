@@ -360,7 +360,7 @@ export function MapCanvas({
                 >
                   {showLabels && (
                     <Tooltip direction="top" offset={[0, -5]} permanent>
-                      {`${stop.nodeName} - ${route.representativeName}`}
+                      {`${stop.nodeName} - ${route.representativeId}`}
                     </Tooltip>
                   )}
 
@@ -400,7 +400,7 @@ export function MapCanvas({
           })}
         </MapContainer>
 
-        <div className="absolute bottom-20 right-4 z-[999]">
+        <div className="absolute bottom-55 right-4 z-[999]">
           <MapLegend />
         </div>
       </div>
