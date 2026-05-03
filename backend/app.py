@@ -85,7 +85,7 @@ RUN_PROFILES: Dict[str, Dict[str, Any]] = {
 
 DEMO_PREVIEW_DEPOTS: Dict[str, Optional[str]] = {
     "primary_reconstruction": "DEPOT-244",   # Amazon demo depot
-    "comparative_template": "DEPOT-080",     # set this to your chosen Zomato depot ID
+    "comparative_template": "DEPOT-153",     # set this to your chosen Zomato depot ID
     "generic_uploaded_dataset": None,
 }
 
@@ -3007,7 +3007,19 @@ def run_baseline(req: BaselineRequest) -> Dict[str, Any]:
             use_existing_agents=False,
             strict_existing_agents=False,
             min_nodes_per_rep=4,
-    )
+        )
+    elif role == "comparative_template":
+        preview_df = build_local_preview_subset(
+            routing_df,
+            num_representatives=req.num_representatives,
+            max_total_stops=max(profile["preview_max_total_stops"], 40),
+            initial_radius_km=profile["preview_initial_radius_km"],
+            max_radius_km=profile["preview_max_radius_km"],
+            local_cap_km=profile["preview_local_cap_km"],
+            use_existing_agents=True,
+            strict_existing_agents=True,
+            min_nodes_per_rep=3,
+        )
     else:
         preview_df = build_local_preview_subset(
             routing_df,
@@ -3016,9 +3028,10 @@ def run_baseline(req: BaselineRequest) -> Dict[str, Any]:
             initial_radius_km=profile["preview_initial_radius_km"],
             max_radius_km=profile["preview_max_radius_km"],
             local_cap_km=profile["preview_local_cap_km"],
-            use_existing_agents=(role in {"primary_reconstruction", "comparative_template"}),
-            strict_existing_agents=(role in {"primary_reconstruction", "comparative_template"}),
-    )
+            use_existing_agents=False,
+            strict_existing_agents=False,
+            min_nodes_per_rep=3,
+        )
     print(f"preview_df built: {len(preview_df)} rows")
 
     preview_df = ensure_preview_node_ids(preview_df)
