@@ -318,7 +318,7 @@ const BaselineRun: React.FC = () => {
                     {dataset?.datasetRole === 'primary_reconstruction'
                       ? 'DEPOT-244'
                       : dataset?.datasetRole === 'comparative_template'
-                        ? 'DEPOT-080'
+                        ? 'DEPOT-153'
                         : 'Automatic'}
                   </div>
                 </div>
