@@ -111,14 +111,14 @@ function SimplifiedPicker({
     return (
         <div className="rounded-md p-3">
 
-            <div className="mb-2">
+            <div className="mb-2 relative">
                 <input
                     placeholder="Search place or address"
                     className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
                     onChange={(e) => search(e.target.value)}
                 />
                 {results.length > 0 && (
-                    <div className="bg-white border border-slate-200 mt-1 rounded max-h-40 overflow-auto z-50">
+                    <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded max-h-40 overflow-auto z-[9999]">
                         {results.map((r: any) => (
                             <button
                                 key={r.place_id}
@@ -269,7 +269,7 @@ export default function AddCustomerModal({ isOpen, onClose, onConfirm, depot }: 
                             </div>
                         ))}
                     </div>
-                    
+
                     <div className="sticky bottom-0 bg-white border-slate-200 px-4 py-3 flex justify-end gap-3 z-30">
                         <button
                             type="button"
@@ -290,7 +290,10 @@ export default function AddCustomerModal({ isOpen, onClose, onConfirm, depot }: 
                                     lon: p.lon ?? null,
                                     address: p.address,
                                 }));
-                                onConfirm(customers);
+                                onClose();
+                                Promise.resolve(onConfirm(customers)).catch(() => {
+                                    // swallow errors to avoid unhandled rejections; parent handles errors
+                                });
                             }}
                             disabled={!allValid}
                         >
