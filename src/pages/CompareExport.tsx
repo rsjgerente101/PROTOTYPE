@@ -105,8 +105,8 @@ const CompareExport: React.FC = () => {
       'Enhanced Customers',
       'Baseline Workload',
       'Enhanced Workload',
-      'Baseline Coverage %',
-      'Enhanced Coverage %',
+      'Baseline Distance (km)',
+      'Enhanced Distance (km)',
     ]);
 
     repComparisonRows.forEach((row) => {
@@ -116,8 +116,8 @@ const CompareExport: React.FC = () => {
         row.enhancedCustomers,
         row.baselineWorkload.toFixed(2),
         row.enhancedWorkload.toFixed(2),
-        row.baselineCoverage.toFixed(2),
-        row.enhancedCoverage.toFixed(2),
+        row.baselineDistance.toFixed(2),
+        row.enhancedDistance.toFixed(2),
       ]);
     });
 
@@ -180,14 +180,6 @@ const CompareExport: React.FC = () => {
       ])
     ).sort();
 
-    const baselineTotalCustomers = baselineRun.representatives.reduce(
-      (sum, rep) => sum + (rep.assignedCustomers || 0),
-      0
-    );
-    const enhancedTotalCustomers = enhancedRun.representatives.reduce(
-      (sum, rep) => sum + (rep.assignedCustomers || 0),
-      0
-    );
 
     return allRepIds.map((repId) => {
       const baselineRep = baselineMap.get(repId);
@@ -199,15 +191,8 @@ const CompareExport: React.FC = () => {
       const baselineWorkload = baselineRep?.workload ?? 0;
       const enhancedWorkload = enhancedRep?.workload ?? 0;
 
-      const baselineCoverage =
-        baselineTotalCustomers > 0
-          ? (baselineCustomers / baselineTotalCustomers) * 100
-          : 0;
-
-      const enhancedCoverage =
-        enhancedTotalCustomers > 0
-          ? (enhancedCustomers / enhancedTotalCustomers) * 100
-          : 0;
+      const baselineDistance = baselineRep?.totalDistance ?? 0;
+      const enhancedDistance = enhancedRep?.totalDistance ?? 0;
 
       return {
         repId,
@@ -215,8 +200,8 @@ const CompareExport: React.FC = () => {
         enhancedCustomers,
         baselineWorkload,
         enhancedWorkload,
-        baselineCoverage,
-        enhancedCoverage,
+        baselineDistance,
+        enhancedDistance,
       };
     });
   };
@@ -281,8 +266,8 @@ const CompareExport: React.FC = () => {
                       <th className="px-4 py-3 text-right font-medium text-gray-700">Enhanced Customers</th>
                       <th className="px-4 py-3 text-right font-medium text-gray-700">Baseline Workload</th>
                       <th className="px-4 py-3 text-right font-medium text-gray-700">Enhanced Workload</th>
-                      <th className="px-4 py-3 text-right font-medium text-gray-700">Baseline Coverage %</th>
-                      <th className="px-4 py-3 text-right font-medium text-gray-700">Enhanced Coverage %</th>
+                      <th className="px-4 py-3 text-right font-medium text-gray-700">Baseline Distance</th>
+                      <th className="px-4 py-3 text-right font-medium text-gray-700">Enhanced Distance</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
@@ -293,8 +278,8 @@ const CompareExport: React.FC = () => {
                         <td className="px-4 py-3 text-right text-gray-700">{row.enhancedCustomers}</td>
                         <td className="px-4 py-3 text-right text-gray-700">{row.baselineWorkload.toFixed(2)}</td>
                         <td className="px-4 py-3 text-right text-gray-700">{row.enhancedWorkload.toFixed(2)}</td>
-                        <td className="px-4 py-3 text-right text-gray-700">{row.baselineCoverage.toFixed(2)}%</td>
-                        <td className="px-4 py-3 text-right text-gray-700">{row.enhancedCoverage.toFixed(2)}%</td>
+                        <td className="px-4 py-3 text-right text-gray-700">{row.baselineDistance.toFixed(2)}km</td>
+                        <td className="px-4 py-3 text-right text-gray-700">{row.enhancedDistance.toFixed(2)}km</td>
                       </tr>
                     ))}
                   </tbody>
