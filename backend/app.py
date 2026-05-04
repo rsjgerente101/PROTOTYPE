@@ -3136,31 +3136,28 @@ def add_customers_to_baseline(req: BaselineAddCustomersRequest) -> Dict[str, Any
     )
 
     resolved_customers: List[AddedCustomerPayload] = []
+    updated_assign_df = assign_df.copy()
 
+    # Assign added customers sequentially using the nearest existing route.
+    # After each customer is assigned, append it immediately so the next added
+    # customer sees the updated route state.
     for customer in req.customers:
-        assigned_rep = customer.assigned_rep
-        if not assigned_rep:
-            assigned_rep = assign_new_customer_by_priority_queue(
-                assign_df,
-                current_rep_df,
-                float(customer.lat),
-                float(customer.lon),
-                alpha=0.60,
-                beta=0.40,
-            )
-
-        resolved_customers.append(
-            AddedCustomerPayload(
-                label=customer.label,
-                lat=customer.lat,
-                lon=customer.lon,
-                address=customer.address,
-                assigned_rep=assigned_rep,
-                customer_number=customer.customer_number,
-            )
+        assigned_rep = assign_new_customer_to_nearest_rep(
+            updated_assign_df,
+            float(customer.lat),
+            float(customer.lon),
         )
 
-    updated_assign_df = append_added_customers_to_assign_df(assign_df, resolved_customers) 
+        resolved_customer = AddedCustomerPayload(
+            label=customer.label,
+            lat=customer.lat,
+            lon=customer.lon,
+            address=customer.address,
+            assigned_rep=assigned_rep,
+            customer_number=customer.customer_number,
+        )
+        resolved_customers.append(resolved_customer)
+        updated_assign_df = append_added_customers_to_assign_df(updated_assign_df, [resolved_customer])
 
     updated_assign_df = ensure_preview_node_ids(updated_assign_df)
 
@@ -3202,6 +3199,17 @@ def add_customers_to_baseline(req: BaselineAddCustomersRequest) -> Dict[str, Any
     updated_run["matrixStats"] = updated_matrix_stats
     updated_run["runProfile"] = base_run.get("runProfile")
     updated_run["profileConfig"] = base_run.get("profileConfig")
+    updated_run["addedCustomers"] = [
+        {
+            "label": c.label,
+            "lat": c.lat,
+            "lon": c.lon,
+            "address": c.address,
+            "assignedRep": c.assigned_rep,
+            "customerNumber": c.customer_number,
+        }
+        for c in resolved_customers
+    ]
 
     RUNS[updated_run["id"]] = {
         "assign_df": updated_assign_df,
@@ -3212,6 +3220,54 @@ def add_customers_to_baseline(req: BaselineAddCustomersRequest) -> Dict[str, Any
     }
 
     return updated_run
+
+
+def assign_new_customer_to_nearest_rep(
+    assign_df: pd.DataFrame,
+    customer_lat: float,
+    customer_lon: float,
+) -> str:
+    """
+    Assign a newly added customer to the representative whose existing route
+    has the nearest customer stop to the new customer.
+
+    This is used for Add Customer so multiple new customers are not all pushed
+    to the same preselected rep unless that rep is truly nearest after each
+    sequential update.
+    """
+    work = ensure_preview_node_ids(assign_df.copy())
+    if work.empty or "rep_id" not in work.columns:
+        return "UNASSIGNED"
+
+    best_rep = None
+    best_distance = None
+    best_workload_count = None
+
+    for rep_id, grp in work.groupby("rep_id"):
+        rep_id_str = str(rep_id)
+        if grp.empty:
+            continue
+
+        nearest_km = min(
+            haversine_km(
+                float(customer_lat),
+                float(customer_lon),
+                float(r["customer_lat"]),
+                float(r["customer_lon"]),
+            )
+            for _, r in grp.iterrows()
+        )
+        workload_count = int(len(grp))
+
+        # Main rule: nearest representative route wins.
+        # Tie-breaker: fewer currently assigned stops.
+        candidate = (nearest_km, workload_count, rep_id_str)
+        if best_distance is None or candidate < (best_distance, best_workload_count or 0, best_rep or ""):
+            best_distance = nearest_km
+            best_workload_count = workload_count
+            best_rep = rep_id_str
+
+    return best_rep or "UNASSIGNED"
 
 def assign_new_customer_by_priority_queue(
     assign_df: pd.DataFrame,
