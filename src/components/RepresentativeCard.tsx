@@ -8,6 +8,11 @@ interface RepresentativeCardProps {
   isDraggable?: boolean;
 }
 
+const formatSalesRepName = (repId?: string | null) => {
+  if (!repId) return '';
+  return repId.replace('-AGE-', '-');
+};
+
 export function RepresentativeCard({
   representative,
   onReassign,
@@ -31,9 +36,11 @@ export function RepresentativeCard({
           </div>
           <div>
             <p className="text-sm font-semibold text-gray-900">
-              {representative.name}
+              {formatSalesRepName(representative.name)}
             </p>
-            <p className="text-xs text-gray-500">{representative.id}</p>
+            <p className="text-xs text-gray-500">
+              {formatSalesRepName(representative.id)}
+            </p>
           </div>
         </div>
       </div>

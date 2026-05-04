@@ -33,6 +33,11 @@ type StoredRunSummary = {
 const BASELINE_STORAGE_KEY = 'baselineRunSummary';
 const DATASET_STORAGE_KEY = 'uploadedDatasetFileMeta';
 
+const formatSalesRepName = (repId?: string | null) => {
+  if (!repId) return '';
+  return repId.replace('-AGE-', '-');
+};
+
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const toRad = (v: number) => (v * Math.PI) / 180;
   const R = 6371;
@@ -287,7 +292,7 @@ const BaselineRun: React.FC = () => {
                     routes={selectedRoute ? [selectedRoute] : []}
                     title={
                       selectedRoute
-                        ? `Route: ${selectedRoute.representativeName}`
+                        ? `Route: ${formatSalesRepName(selectedRoute.representativeName)}`
                         : 'Selected Route'
                     }
                   />
@@ -500,7 +505,7 @@ const BaselineRun: React.FC = () => {
                       {addedCustomers.map((customer) => (
                         <div key={customer.id} className="rounded border border-gray-200 p-2">
                           <div className="font-medium">{customer.label}</div>
-                          {customer.assignedRep && <div>Rep: {customer.assignedRep}</div>}
+                          {customer.assignedRep && (<div>Rep: {formatSalesRepName(customer.assignedRep)}</div>)}
                           <div>Lat: {customer.lat.toFixed(6)}</div>
                           <div>Lon: {customer.lon.toFixed(6)}</div>
                           {customer.address && (
@@ -519,7 +524,7 @@ const BaselineRun: React.FC = () => {
                     onChange={setSelectedRouteId}
                     options={run.routes.map((route) => ({
                       value: route.id,
-                      label: route.representativeName,
+                      label: formatSalesRepName(route.representativeName),
                     }))}
                   />
                 </div>

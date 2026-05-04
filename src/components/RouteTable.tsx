@@ -7,6 +7,11 @@ interface RouteTableProps {
   title?: string;
 }
 
+const formatSalesRepName = (repId?: string | null) => {
+  if (!repId) return '';
+  return repId.replace('-AGE-', '-');
+};
+
 export function RouteTable({ routes, title }: RouteTableProps) {
   const allStops = routes.flatMap((route) =>
     route.stops.map((stop) => ({
@@ -60,7 +65,7 @@ export function RouteTable({ routes, title }: RouteTableProps) {
                 className="hover:bg-gray-50"
               >
                 <td className="px-4 py-2 text-gray-900">
-                  {stop.representativeName}
+                  {formatSalesRepName(stop.representativeName)}
                 </td>
                 <td className="px-4 py-2 text-gray-900">{stop.stopNumber}</td>
                 <td className="px-4 py-2 text-gray-900">{stop.nodeName}</td>

@@ -14,6 +14,11 @@ type StoredRunSummary = Pick<
 const BASELINE_STORAGE_KEY = 'baselineRunSummary';
 const ENHANCED_STORAGE_KEY = 'enhancedRunSummary';
 
+const formatSalesRepName = (repId?: string | null) => {
+  if (!repId) return '';
+  return repId.replace('-AGE-', '-');
+};
+
 const CompareExport: React.FC = () => {
   const navigate = useNavigate();
 
@@ -106,7 +111,7 @@ const CompareExport: React.FC = () => {
 
     repComparisonRows.forEach((row) => {
       rows.push([
-        row.repId,
+        formatSalesRepName(row.repId),
         row.baselineCustomers,
         row.enhancedCustomers,
         row.baselineWorkload.toFixed(2),
@@ -268,7 +273,7 @@ const CompareExport: React.FC = () => {
                   <tbody className="divide-y divide-gray-200">
                     {repComparisonRows.map((row) => (
                       <tr key={row.repId} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-gray-900 font-medium">{row.repId}</td>
+                        <td className="px-4 py-3 text-gray-900 font-medium">{formatSalesRepName(row.repId)}</td>
                         <td className="px-4 py-3 text-right text-gray-700">{row.baselineCustomers}</td>
                         <td className="px-4 py-3 text-right text-gray-700">{row.enhancedCustomers}</td>
                         <td className="px-4 py-3 text-right text-gray-700">{row.baselineWorkload.toFixed(2)}</td>
