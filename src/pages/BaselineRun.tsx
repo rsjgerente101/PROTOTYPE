@@ -315,9 +315,9 @@ const BaselineRun: React.FC = () => {
                   <div className="text-xs text-gray-500">Depot</div>
                   <div className="text-sm font-medium text-gray-900">
                     {dataset?.datasetRole === 'primary_reconstruction'
-                      ? 'DEPOT-244'
+                      ? 'DEPOT-130'
                       : dataset?.datasetRole === 'comparative_template'
-                        ? 'DEPOT-080'
+                        ? 'DEPOT-153'
                         : 'Automatic'}
                   </div>
                 </div>
