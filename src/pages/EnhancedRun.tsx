@@ -21,6 +21,11 @@ const DATASET_STORAGE_KEY = 'uploadedDatasetFileMeta';
 const BASELINE_STORAGE_KEY = 'baselineRunSummary';
 const ENHANCED_STORAGE_KEY = 'enhancedRunSummary';
 
+const formatSalesRepName = (repId?: string | null) => {
+  if (!repId) return '';
+  return repId.replace('-AGE-', '-');
+};
+
 const EnhancedRun: React.FC = () => {
   const navigate = useNavigate();
 
@@ -82,12 +87,12 @@ const EnhancedRun: React.FC = () => {
   }, [dataset]);
 
   const routeOptions = useMemo(() => {
-    if (!enhancedRun) return [];
-    return enhancedRun.routes.map((route) => ({
-      value: route.id,
-      label: `${route.representativeName} (${route.stops.length} stops)`,
-    }));
-  }, [enhancedRun]);
+  if (!enhancedRun) return [];
+  return enhancedRun.routes.map((route) => ({
+    value: route.id,
+    label: `${formatSalesRepName(route.representativeName)} (${route.stops.length} stops)`,
+  }));
+}, [enhancedRun]);
 
   const selectedRoutesForDisplay: Route[] = useMemo(() => {
     if (!enhancedRun) return [];
@@ -234,7 +239,11 @@ const EnhancedRun: React.FC = () => {
               {enhancedRun && (
                 <RouteTable
                   routes={selectedRoute ? [selectedRoute] : enhancedRun.routes}
-                  title={selectedRoute ? `Route Details — ${selectedRoute.representativeName}` : 'All Representative Routes'}
+                  title={
+                    selectedRoute
+                      ? `Route Details — ${formatSalesRepName(selectedRoute.representativeName)}`
+                      : 'All Representative Routes'
+                  }
                 />
               )}
             </div>
