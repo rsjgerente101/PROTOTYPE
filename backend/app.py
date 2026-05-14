@@ -146,42 +146,6 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
     return 2 * EARTH_RADIUS_KM * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
-def get_stop_delay_minutes(stop: dict) -> float:
-    for key in [
-        "delay_minutes",
-        "time_delay",
-        "Time_Delay",
-        "observed_eta_min",
-        "eta_min",
-        "Delivery_Time",
-        "Time_taken(min)",
-        "time_taken_min",
-    ]:
-        value = stop.get(key)
-        if value is not None:
-            try:
-                return max(float(value), 0.0)
-            except Exception:
-                continue
-
-    return 0.0
-
-
-def compute_route_workload_minutes(
-    route_distance_km: float,
-    stop_count: int,
-    average_speed_kph: float,
-    service_minutes_per_stop: float,
-    delay_minutes: float = 0.0,
-) -> float:
-    if average_speed_kph <= 0:
-        average_speed_kph = 40.0
-
-    travel_time_min = (route_distance_km / average_speed_kph) * 60.0
-    service_time_min = stop_count * service_minutes_per_stop
-
-    return round(travel_time_min + service_time_min + delay_minutes, 2)
-
 def road_adjusted_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """
     Fast proxy for road-network cost.
@@ -1485,15 +1449,6 @@ def append_added_customers_to_assign_df(
     combined = pd.concat([work, added_df], ignore_index=True)
     return combined.reset_index(drop=True)
 
-def compute_delay_score(series: pd.Series) -> pd.Series:
-    values = pd.to_numeric(series, errors="coerce")
-    mean_val = float(values.mean()) if values.notna().any() else 0.0
-    std_val = float(values.std(ddof=0)) if values.notna().any() else 0.0
-
-    if std_val <= 1e-9:
-        return pd.Series(0.0, index=values.index)
-
-    return ((values - mean_val) / std_val).fillna(0.0)
 
 def route_all(
     assign_df: pd.DataFrame,
@@ -1520,30 +1475,14 @@ def route_all(
             "stops": ordered_stops,
         })
 
-        total_delay_minutes = float(
-            pd.to_numeric(grp["observed_eta_min"], errors="coerce")
-            .fillna(0.0)
-            .clip(lower=0.0)
-            .sum()
-        )
-
-        workload = compute_route_workload_minutes(
-            route_distance_km=float(stats["distance_km"]),
-            stop_count=int(len(grp)),
-            average_speed_kph=float(speed_kmph),
-            service_minutes_per_stop=float(service_min),
-            delay_minutes=total_delay_minutes,
-        )
-
-        operational_minutes_with_delay = float(workload)
-
+        workload = float(stats["operational_minutes"])
         rep_rows.append({
             "rep_id": rep_id,
             "customers": int(len(grp)),
-            "workload_min": float(workload),
+            "workload_min": float(stats["operational_minutes"]),
             "distance_km": float(stats["distance_km"]),
             "travel_minutes": float(stats["travel_minutes"]),
-            "operational_minutes": operational_minutes_with_delay,
+            "operational_minutes": float(stats["operational_minutes"]),
             "centroid_lat": float(grp["customer_lat"].mean()),
             "centroid_lon": float(grp["customer_lon"].mean()),
         })
