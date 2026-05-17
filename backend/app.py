@@ -3930,46 +3930,6 @@ def assign_new_customer_to_nearest_rep(
     return best_rep or "UNASSIGNED"
 
 
-def assign_new_customer_by_priority_queue(
-    assign_df: pd.DataFrame,
-    rep_df: pd.DataFrame,
-    customer_lat: float,
-    customer_lon: float,
-    alpha: float = 0.60,
-    beta: float = 0.40,
-) -> str:
-    scored = compute_thesis_priority_scores(assign_df, rep_df, alpha=alpha, beta=beta)
-
-    best_rep = None
-    best_score = None
-
-    for row in scored.itertuples(index=False):
-        rep_id = str(row.rep_id)
-        rep_points = assign_df[assign_df["rep_id"] == rep_id].copy()
-
-        if rep_points.empty:
-            return rep_id
-
-        nearest_km = min(
-            haversine_km(
-                customer_lat,
-                customer_lon,
-                float(r["customer_lat"]),
-                float(r["customer_lon"]),
-            )
-            for _, r in rep_points.iterrows()
-        )
-
-        # Lower PS first, distance as tie-breaker
-        candidate_score = (float(row.priority_score), nearest_km)
-
-        if best_score is None or candidate_score < best_score:
-            best_score = candidate_score
-            best_rep = rep_id
-
-    return best_rep or str(scored.iloc[0]["rep_id"])
-
-
 @app.post("/api/runs/enhanced")
 def run_enhanced(req: EnhancedRequest) -> Dict[str, Any]:
     print("enhanced started")
