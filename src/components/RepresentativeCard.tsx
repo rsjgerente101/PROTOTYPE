@@ -1,10 +1,9 @@
 import React from 'react';
-import { Representative } from '../types';
+import type { Representative } from '../types';
 import { UserIcon } from 'lucide-react';
 
 interface RepresentativeCardProps {
   representative: Representative;
-  onReassign?: (repId: string) => void;
   isDraggable?: boolean;
 }
 
@@ -15,7 +14,6 @@ const formatSalesRepName = (repId?: string | null) => {
 
 export function RepresentativeCard({
   representative,
-  onReassign,
   isDraggable = false,
 }: RepresentativeCardProps) {
   const color = representative.color ?? '#2563eb';

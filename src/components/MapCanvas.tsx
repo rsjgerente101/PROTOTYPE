@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Maximize2Icon, Minimize2Icon } from 'lucide-react';
 import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip, useMap } from 'react-leaflet';
-import { Route, Depot, AddedCustomer } from '../types';
+import type { Route, Depot, AddedCustomer } from '../types';
 import { Card } from './Card';
 import MapLegend from './MapLegend';
 
@@ -185,12 +185,11 @@ export function MapCanvas({
   onMapReady,
   addedCustomers = [],
 }: MapCanvasProps) {
-  const allStops = routes.flatMap((r) => r.stops ?? []);
-
   const allPoints: [number, number][] = useMemo(() => {
-    const stopPts = allStops
-      .map((s) => normalizeLatLon(s))
-      .filter((coords): coords is [number, number] => coords !== null);
+  const stopPts = routes
+    .flatMap((route) => route.stops ?? [])
+    .map((stop) => normalizeLatLon(stop))
+    .filter((coords): coords is [number, number] => coords !== null);
 
     const addedPts = addedCustomers
       .map((c) => normalizeLatLon(c))
@@ -199,7 +198,7 @@ export function MapCanvas({
     const depotCoords = normalizeLatLon(depot);
 
     return depotCoords ? [depotCoords, ...stopPts, ...addedPts] : [...stopPts, ...addedPts];
-  }, [allStops, depot, addedCustomers]);
+  }, [routes, depot, addedCustomers]);
 
   const fallbackCenter: [number, number] =
     allPoints.length > 0 ? allPoints[0] : [14.5995, 120.9842];

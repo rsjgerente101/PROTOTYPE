@@ -18,8 +18,8 @@ export function KPICard({
   icon
 }: KPICardProps) {
   const showDelta = delta !== undefined;
-  const isPositive = delta && delta > 0;
-  const isNegative = delta && delta < 0;
+  const isPositive = delta !== undefined && delta > 0;
+  const isNegative = delta !== undefined && delta < 0;
   return <Card>
       <div className="flex items-start justify-between">
         <div className="flex-1">

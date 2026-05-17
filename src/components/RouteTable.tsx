@@ -53,7 +53,7 @@ export function RouteTable({ routes, title }: RouteTableProps) {
                 Cumulative (km)
               </th>
               <th className="px-4 py-2 text-right font-medium text-gray-700">
-                ETA Proxy (hr)
+                ETA Proxy (min)
               </th>
             </tr>
           </thead>

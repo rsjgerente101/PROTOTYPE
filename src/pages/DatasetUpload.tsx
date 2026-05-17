@@ -154,8 +154,6 @@ const DatasetUpload: React.FC = () => {
 
     try {
       const headers = await parseCsvHeaders(uploadedFile);
-      console.log('Parsed headers:', headers);
-      console.log('Reconstructed detected:', isReconstructedSchema(headers));
 
       const inferred = inferFrontendDatasetRole(uploadedFile.name);
 

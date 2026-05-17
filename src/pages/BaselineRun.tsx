@@ -38,23 +38,6 @@ const formatSalesRepName = (repId?: string | null) => {
   return repId.replace('-AGE-', '-');
 };
 
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const toRad = (v: number) => (v * Math.PI) / 180;
-  const R = 6371;
-
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) *
-      Math.cos(toRad(lat2)) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-
-  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
 function extractCustomerNumber(name: string): number | null {
   const match = name.match(/Customer\s+(\d+)/i);
   if (!match) return null;
@@ -121,7 +104,7 @@ function applyBackendAddedCustomerAssignments(
     return {
       ...customer,
       assignedRep,
-      label: assignedRep ? `Customer ${customer.customerNumber} - ${assignedRep}` : customer.label,
+      label: assignedRep ? `Customer ${customer.customerNumber} - ${formatSalesRepName(assignedRep)}` : customer.label,
     };
   });
 }

@@ -52,7 +52,6 @@ const EnhancedRun: React.FC = () => {
   useEffect(() => {
     const storedDataset = localStorage.getItem(DATASET_STORAGE_KEY);
     const storedBaseline = localStorage.getItem(BASELINE_STORAGE_KEY);
-    const storedEnhanced = localStorage.getItem(ENHANCED_STORAGE_KEY);
 
     if (storedDataset) {
       setDataset(JSON.parse(storedDataset));
@@ -62,12 +61,6 @@ const EnhancedRun: React.FC = () => {
       setBaselineSummary(JSON.parse(storedBaseline));
     }
 
-    if (storedEnhanced) {
-      const parsed = JSON.parse(storedEnhanced) as StoredRunSummary;
-      // keep summary in storage only; full run will come from a fresh execution
-      // this avoids broken route rendering from incomplete summary payload
-      void parsed;
-    }
   }, []);
 
   useEffect(() => {
@@ -142,8 +135,6 @@ const EnhancedRun: React.FC = () => {
     try {
       setBusy(true);
       setMessage('Running enhanced DEQ experiment on backend...');
-
-      const isAmazon = dataset.datasetRole === 'primary_reconstruction';
 
       const result = await runEnhanced({
         datasetId: dataset.id,

@@ -2,8 +2,7 @@ import React from 'react';
 import type { Representative } from '../types';
 import { RepresentativeCard } from './RepresentativeCard';
 import { Card } from './Card';
-import { Button } from './Button';
-import { ArrowLeftIcon, ArrowRightIcon } from 'lucide-react';
+import { ArrowRightIcon } from 'lucide-react';
 
 interface DequePanelProps {
   representatives: Representative[];
@@ -11,32 +10,7 @@ interface DequePanelProps {
 }
 
 export function DequePanel({ representatives, onUpdate }: DequePanelProps) {
-  const handlePushFront = (repId: string) => {
-    if (!onUpdate) return;
-
-    const updatedReps = [...representatives];
-    const repIndex = updatedReps.findIndex((r) => r.id === repId);
-
-    if (repIndex > 0) {
-      const [rep] = updatedReps.splice(repIndex, 1);
-      updatedReps.unshift(rep);
-      onUpdate(updatedReps);
-    }
-  };
-
-  const handlePushBack = (repId: string) => {
-    if (!onUpdate) return;
-
-    const updatedReps = [...representatives];
-    const repIndex = updatedReps.findIndex((r) => r.id === repId);
-
-    if (repIndex < updatedReps.length - 1) {
-      const [rep] = updatedReps.splice(repIndex, 1);
-      updatedReps.push(rep);
-      onUpdate(updatedReps);
-    }
-  };
-
+  
   return (
     <Card>
       <div className="mb-4">
