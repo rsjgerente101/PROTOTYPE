@@ -3290,7 +3290,19 @@ def run_baseline(req: BaselineRequest) -> Dict[str, Any]:
             strict_existing_agents=True,
             min_nodes_per_rep=1,
             max_customers_per_rep=AMAZON_MAX_CUSTOMERS_PER_REP,
-    )
+        )
+    elif role == "comparative_template":
+        preview_df = build_local_preview_subset(
+            routing_df,
+            num_representatives=req.num_representatives,
+            max_total_stops=max(profile["preview_max_total_stops"], 40),
+            initial_radius_km=profile["preview_initial_radius_km"],
+            max_radius_km=profile["preview_max_radius_km"],
+            local_cap_km=profile["preview_local_cap_km"],
+            use_existing_agents=True,
+            strict_existing_agents=True,
+            min_nodes_per_rep=3,
+        )
     else:
         preview_df = build_local_preview_subset(
             routing_df,
