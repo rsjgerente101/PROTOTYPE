@@ -36,9 +36,7 @@ export function RepresentativeCard({
             <p className="text-sm font-semibold text-gray-900">
               {formatSalesRepName(representative.name)}
             </p>
-            <p className="text-xs text-gray-500">
-              {formatSalesRepName(representative.id)}
-            </p>
+            <p className="text-xs text-gray-500">{formatSalesRepName(representative.id)}</p>
           </div>
         </div>
       </div>
@@ -64,17 +62,13 @@ export function RepresentativeCard({
         </div>
         <div>
           <p className="text-xs text-gray-500">Queue Pos.</p>
-          <p className="text-sm font-semibold text-gray-900">
-            {representative.queuePosition}
-          </p>
+          <p className="text-sm font-semibold text-gray-900">{representative.queuePosition}</p>
         </div>
       </div>
 
       <div className="mt-3 pt-3 border-t border-gray-200">
         <p className="text-xs text-gray-500 mb-1">Assigned Customers</p>
-        <p className="text-sm font-semibold text-gray-900">
-          {representative.assignedCustomers}
-        </p>
+        <p className="text-sm font-semibold text-gray-900">{representative.assignedCustomers}</p>
       </div>
     </div>
   );

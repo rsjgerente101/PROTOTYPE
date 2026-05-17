@@ -45,10 +45,7 @@ function extractCustomerNumber(name: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function getNextCustomerNumber(
-  run: AlgorithmRun | null,
-  addedCustomers: AddedCustomer[]
-): number {
+function getNextCustomerNumber(run: AlgorithmRun | null, addedCustomers: AddedCustomer[]): number {
   let maxNumber = 0;
 
   if (run) {
@@ -104,7 +101,9 @@ function applyBackendAddedCustomerAssignments(
     return {
       ...customer,
       assignedRep,
-      label: assignedRep ? `Customer ${customer.customerNumber} - ${formatSalesRepName(assignedRep)}` : customer.label,
+      label: assignedRep
+        ? `Customer ${customer.customerNumber} - ${formatSalesRepName(assignedRep)}`
+        : customer.label,
     };
   });
 }
@@ -254,9 +253,7 @@ const BaselineRun: React.FC = () => {
       <div className="h-screen flex flex-col">
         <div className="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              Baseline Route Generation
-            </h1>
+            <h1 className="text-2xl font-bold text-gray-900">Baseline Route Generation</h1>
             <p className="text-sm text-gray-600">
               Greedy Nearest Neighbor + Dijkstra Shortest Path
             </p>
@@ -301,9 +298,7 @@ const BaselineRun: React.FC = () => {
               <Card className="h-full flex items-center justify-center">
                 <div className="text-center">
                   <MapIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                  <p className="text-gray-500">
-                    Run the baseline algorithm to visualize routes
-                  </p>
+                  <p className="text-gray-500">Run the baseline algorithm to visualize routes</p>
                 </div>
               </Card>
             )}
@@ -311,9 +306,7 @@ const BaselineRun: React.FC = () => {
 
           <div className="w-[420px] bg-white border-l border-gray-200 p-6 overflow-auto">
             <Card className="mb-6">
-              <h2 className="text-sm font-semibold text-gray-900 mb-4">
-                Parameters
-              </h2>
+              <h2 className="text-sm font-semibold text-gray-900 mb-4">Parameters</h2>
 
               <div className="space-y-3">
                 <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2">
@@ -331,18 +324,14 @@ const BaselineRun: React.FC = () => {
                   label="Average Speed (km/h)"
                   type="number"
                   value={parameters.speed}
-                  onChange={(val) =>
-                    setParameters((prev) => ({ ...prev, speed: val }))
-                  }
+                  onChange={(val) => setParameters((prev) => ({ ...prev, speed: val }))}
                 />
 
                 <Input
                   label="Service Minutes per Stop"
                   type="number"
                   value={parameters.serviceMinutes}
-                  onChange={(val) =>
-                    setParameters((prev) => ({ ...prev, serviceMinutes: val }))
-                  }
+                  onChange={(val) => setParameters((prev) => ({ ...prev, serviceMinutes: val }))}
                 />
 
                 {/* Random seed is kept internal for reproducibility and hidden from the UI */}
@@ -415,7 +404,9 @@ const BaselineRun: React.FC = () => {
 
                       try {
                         setBusy(true);
-                        setMessage(`Adding ${normalized.length} customer(s) and rerouting baseline...`);
+                        setMessage(
+                          `Adding ${normalized.length} customer(s) and rerouting baseline...`
+                        );
 
                         const updatedRun = await addCustomersToBaseline(currentRun.id, normalized);
 
@@ -430,15 +421,24 @@ const BaselineRun: React.FC = () => {
                         localStorage.setItem(BASELINE_STORAGE_KEY, JSON.stringify(summary));
                         // Keep the old added customers and append the newly processed customers
                         // with their backend-assigned representatives.
-                        const assignedPreview = applyBackendAddedCustomerAssignments(updatedRun, normalized);
+                        const assignedPreview = applyBackendAddedCustomerAssignments(
+                          updatedRun,
+                          normalized
+                        );
                         setAddedCustomers([...assignedPreview, ...existingAdded]);
                         setRun(updatedRun);
                         setSelectedRouteId(updatedRun.routes[0]?.id ?? '');
-                        setMessage(`Added ${normalized.length} customer(s) and updated baseline routes.`);
+                        setMessage(
+                          `Added ${normalized.length} customer(s) and updated baseline routes.`
+                        );
                         setShowAddModal(false);
                         setMapLoaded(false);
                       } catch (err) {
-                        setMessage(err instanceof Error ? err.message : 'Failed to add customers to baseline.');
+                        setMessage(
+                          err instanceof Error
+                            ? err.message
+                            : 'Failed to add customers to baseline.'
+                        );
                       } finally {
                         setBusy(false);
                       }
@@ -446,7 +446,9 @@ const BaselineRun: React.FC = () => {
                   />
                   {addedCustomers.length > 0 && (
                     <Card className="mt-3">
-                      <h3 className="text-sm font-semibold text-gray-900 mb-2">Added Customers Preview</h3>
+                      <h3 className="text-sm font-semibold text-gray-900 mb-2">
+                        Added Customers Preview
+                      </h3>
                       <div className="space-y-2 text-sm text-gray-700 max-h-96 overflow-auto pr-2">
                         {addedCustomers.map((customer) => (
                           <div key={customer.id} className="rounded border border-gray-200 p-2">
@@ -454,7 +456,9 @@ const BaselineRun: React.FC = () => {
                             <div>
                               Rep:{' '}
                               {customer.assignedRep ? (
-                                <span className="font-medium text-green-700">{customer.assignedRep}</span>
+                                <span className="font-medium text-green-700">
+                                  {customer.assignedRep}
+                                </span>
                               ) : (
                                 <span className="text-gray-500">assigned after processing</span>
                               )}
@@ -472,9 +476,7 @@ const BaselineRun: React.FC = () => {
                 </>
               )}
 
-              {message && (
-                <div className="mt-3 text-sm text-slate-700">{message}</div>
-              )}
+              {message && <div className="mt-3 text-sm text-slate-700">{message}</div>}
             </Card>
 
             {run && (
@@ -485,17 +487,34 @@ const BaselineRun: React.FC = () => {
                   </h2>
 
                   <div className="space-y-3">
-                    <KPICard title="Total Distance" value={run.kpis.totalDistance} unit="km" icon={<RouteIcon className="w-5 h-5" />} />
-                    <KPICard title="Travel Time" value={run.kpis.travelTime} unit="hr" icon={<ClockIcon className="w-5 h-5" />} />
-                    <KPICard title="Operational Time" value={run.kpis.operationalTime} unit="hr" icon={<ClockIcon className="w-5 h-5" />} />
-                    <KPICard title="Fairness" value={run.kpis.fairness} icon={<UsersIcon className="w-5 h-5" />} />
+                    <KPICard
+                      title="Total Distance"
+                      value={run.kpis.totalDistance}
+                      unit="km"
+                      icon={<RouteIcon className="w-5 h-5" />}
+                    />
+                    <KPICard
+                      title="Travel Time"
+                      value={run.kpis.travelTime}
+                      unit="hr"
+                      icon={<ClockIcon className="w-5 h-5" />}
+                    />
+                    <KPICard
+                      title="Operational Time"
+                      value={run.kpis.operationalTime}
+                      unit="hr"
+                      icon={<ClockIcon className="w-5 h-5" />}
+                    />
+                    <KPICard
+                      title="Fairness"
+                      value={run.kpis.fairness}
+                      icon={<UsersIcon className="w-5 h-5" />}
+                    />
                   </div>
                 </div>
 
                 <div className="mb-6">
-                  <h2 className="text-sm font-semibold text-gray-900 mb-3">
-                    Map Controls
-                  </h2>
+                  <h2 className="text-sm font-semibold text-gray-900 mb-3">Map Controls</h2>
 
                   <div className="space-y-2">
                     <label className="flex items-center gap-2 text-sm text-gray-700">
@@ -536,7 +555,9 @@ const BaselineRun: React.FC = () => {
                       {addedCustomers.map((customer) => (
                         <div key={customer.id} className="rounded border border-gray-200 p-2">
                           <div className="font-medium">{customer.label}</div>
-                          {customer.assignedRep && (<div>Rep: {formatSalesRepName(customer.assignedRep)}</div>)}
+                          {customer.assignedRep && (
+                            <div>Rep: {formatSalesRepName(customer.assignedRep)}</div>
+                          )}
                           <div>Lat: {customer.lat.toFixed(6)}</div>
                           <div>Lon: {customer.lon.toFixed(6)}</div>
                           {customer.address && (

@@ -70,7 +70,15 @@ function buildOffsetPolylinePoints(
   return stopPoints;
 }
 
-function toLatLng(path?: Array<{ lat?: number | string; lon?: number | string; lng?: number | string; latitude?: number | string; longitude?: number | string }>): [number, number][] {
+function toLatLng(
+  path?: Array<{
+    lat?: number | string;
+    lon?: number | string;
+    lng?: number | string;
+    latitude?: number | string;
+    longitude?: number | string;
+  }>
+): [number, number][] {
   if (!path || path.length === 0) return [];
   return path
     .map((p) => normalizeLatLon(p))
@@ -101,15 +109,21 @@ function hasOutlierPathPoint(
 
   // City-scale plotting: if a path vertex is far from both endpoints,
   // it's likely an invalid/swapped coordinate and should be ignored.
-  return points.some(([lat, lon]) => (
-    Math.abs(lat - centerLat) > 1.5 || Math.abs(lon - centerLon) > 1.5
-  ));
+  return points.some(
+    ([lat, lon]) => Math.abs(lat - centerLat) > 1.5 || Math.abs(lon - centerLon) > 1.5
+  );
 }
 
 function buildAnchoredSegment(
   start: [number, number],
   end: [number, number],
-  path?: Array<{ lat?: number | string; lon?: number | string; lng?: number | string; latitude?: number | string; longitude?: number | string }>
+  path?: Array<{
+    lat?: number | string;
+    lon?: number | string;
+    lng?: number | string;
+    latitude?: number | string;
+    longitude?: number | string;
+  }>
 ): [number, number][] {
   const middle = toLatLng(path);
   if (middle.length === 0) return [start, end];
@@ -186,10 +200,10 @@ export function MapCanvas({
   addedCustomers = [],
 }: MapCanvasProps) {
   const allPoints: [number, number][] = useMemo(() => {
-  const stopPts = routes
-    .flatMap((route) => route.stops ?? [])
-    .map((stop) => normalizeLatLon(stop))
-    .filter((coords): coords is [number, number] => coords !== null);
+    const stopPts = routes
+      .flatMap((route) => route.stops ?? [])
+      .map((stop) => normalizeLatLon(stop))
+      .filter((coords): coords is [number, number] => coords !== null);
 
     const addedPts = addedCustomers
       .map((c) => normalizeLatLon(c))
@@ -209,9 +223,7 @@ export function MapCanvas({
     <Card className="h-full overflow-hidden" padding="none">
       <div className="relative w-full min-h-[820px] h-[60vh]">
         <MapContainer
-          {...(allPoints.length > 0
-            ? { bounds: allPoints }
-            : { center: fallbackCenter, zoom: 12 })}
+          {...(allPoints.length > 0 ? { bounds: allPoints } : { center: fallbackCenter, zoom: 12 })}
           className="w-full h-full rounded-lg"
           scrollWheelZoom
         >
@@ -228,8 +240,9 @@ export function MapCanvas({
           )}
 
           {routes.map((route, routeIndex) => {
-            const routeHasHighlightedStop =
-              (route.stops ?? []).some((stop) => highlightedNodes.includes(stop.nodeId));
+            const routeHasHighlightedStop = (route.stops ?? []).some((stop) =>
+              highlightedNodes.includes(stop.nodeId)
+            );
 
             const shouldEmphasize = !hasHighlightedStop || routeHasHighlightedStop;
 
@@ -253,9 +266,7 @@ export function MapCanvas({
                   };
                 }
 
-                const prev = idx === 0
-                  ? depotCoords
-                  : normalizeLatLon(routeStops[idx - 1]);
+                const prev = idx === 0 ? depotCoords : normalizeLatLon(routeStops[idx - 1]);
 
                 if (!prev) {
                   return {
@@ -271,9 +282,8 @@ export function MapCanvas({
               })
               .filter((seg) => seg.positions.length >= 2);
 
-            const lastStopCoords = routeStops.length > 0
-              ? normalizeLatLon(routeStops[routeStops.length - 1])
-              : null;
+            const lastStopCoords =
+              routeStops.length > 0 ? normalizeLatLon(routeStops[routeStops.length - 1]) : null;
 
             const returnSegment =
               lastStopCoords && depotCoords
@@ -334,7 +344,11 @@ export function MapCanvas({
                 weight: 2,
               }}
             >
-              {showLabels && <Tooltip permanent direction="top">Depot</Tooltip>}
+              {showLabels && (
+                <Tooltip permanent direction="top">
+                  Depot
+                </Tooltip>
+              )}
             </CircleMarker>
           )}
 

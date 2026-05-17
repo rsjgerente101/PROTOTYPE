@@ -61,9 +61,7 @@ function roleBadgeText(role: DatasetRole): string {
 
 function isReconstructedSchema(headers: string[]): boolean {
   const normalized = headers.map(cleanHeader);
-  return REQUIRED_RECONSTRUCTED_HEADERS.every((required) =>
-    normalized.includes(required)
-  );
+  return REQUIRED_RECONSTRUCTED_HEADERS.every((required) => normalized.includes(required));
 }
 
 function buildAutoMapping(headers: string[]): FieldMapping {
@@ -78,7 +76,8 @@ function buildAutoMapping(headers: string[]): FieldMapping {
     customer_lat: byNormalized.get('customer_lat') || '',
     customer_lon: byNormalized.get('customer_lon') || '',
     order_id: byNormalized.get('order_id') || undefined,
-    order_date_col: byNormalized.get('order_date') || byNormalized.get('order_date_col') || undefined,
+    order_date_col:
+      byNormalized.get('order_date') || byNormalized.get('order_date_col') || undefined,
     eta_col: byNormalized.get('observed_eta_min') || byNormalized.get('eta') || undefined,
     rating_col: byNormalized.get('rating') || undefined,
     area_col: byNormalized.get('area') || undefined,
@@ -197,26 +196,21 @@ const DatasetUpload: React.FC = () => {
 
     const headerMap = new Map(csvHeaders.map((h) => [cleanHeader(h), h]));
     const inferredZomatoAgentId =
-      headerMap.get('delivery_person_id') ||
-      headerMap.get('delivery_person_id_') ||
-      '';
+      headerMap.get('delivery_person_id') || headerMap.get('delivery_person_id_') || '';
 
-    const inferredOrderDateCol =
-      headerMap.get('order_date') ||
-      '';
+    const inferredOrderDateCol = headerMap.get('order_date') || '';
 
-    const effectiveMapping: FieldMapping =
-      !autoDetectedReconstructed
-        ? {
-            ...mapping,
-            customer_id: mapping.customer_id || mapping.order_id || '',
-            agent_id:
-              detectedRole === 'comparative_template'
-                ? mapping.agent_id || inferredZomatoAgentId || ''
-                : mapping.agent_id,
-            order_date_col: mapping.order_date_col || inferredOrderDateCol || '',
-          }
-        : mapping;
+    const effectiveMapping: FieldMapping = !autoDetectedReconstructed
+      ? {
+          ...mapping,
+          customer_id: mapping.customer_id || mapping.order_id || '',
+          agent_id:
+            detectedRole === 'comparative_template'
+              ? mapping.agent_id || inferredZomatoAgentId || ''
+              : mapping.agent_id,
+          order_date_col: mapping.order_date_col || inferredOrderDateCol || '',
+        }
+      : mapping;
 
     if (
       !effectiveMapping.depot_lat ||
@@ -265,12 +259,12 @@ const DatasetUpload: React.FC = () => {
   const selectOptions =
     csvHeaders.length > 0
       ? [
-        { label: 'Select column', value: '' },
-        ...csvHeaders.map((header) => ({
-          label: header,
-          value: header,
-        })),
-      ]
+          { label: 'Select column', value: '' },
+          ...csvHeaders.map((header) => ({
+            label: header,
+            value: header,
+          })),
+        ]
       : [{ label: 'Upload file first', value: '' }];
 
   return (
@@ -279,9 +273,7 @@ const DatasetUpload: React.FC = () => {
         <div className="space-y-4">
           <h2 className="text-lg font-semibold text-slate-900 mb-4">Dataset Upload</h2>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Upload CSV
-            </label>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Upload CSV</label>
             <input
               type="file"
               accept=".csv"
@@ -293,11 +285,7 @@ const DatasetUpload: React.FC = () => {
                          file:bg-blue-600 file:text-white
                          hover:file:bg-blue-700"
             />
-            {file && (
-              <p className="mt-2 text-sm text-slate-600">
-                Selected file: {file.name}
-              </p>
-            )}
+            {file && <p className="mt-2 text-sm text-slate-600">Selected file: {file.name}</p>}
             {inferredRole && (
               <p className="mt-1 text-xs text-slate-500">
                 Detected dataset role: {roleBadgeText(inferredRole)}
@@ -317,9 +305,7 @@ const DatasetUpload: React.FC = () => {
                   key={field.value}
                   label={field.label}
                   value={(mapping as Record<string, string | undefined>)[field.value] ?? ''}
-                  onChange={(value) =>
-                    setMapping((prev) => ({ ...prev, [field.value]: value }))
-                  }
+                  onChange={(value) => setMapping((prev) => ({ ...prev, [field.value]: value }))}
                   options={selectOptions}
                 />
               ))}
@@ -328,18 +314,49 @@ const DatasetUpload: React.FC = () => {
 
           {autoDetectedReconstructed && (
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-              The uploaded CSV already contains the reconstructed baseline schema. The system auto-filled the required fields:
+              The uploaded CSV already contains the reconstructed baseline schema. The system
+              auto-filled the required fields:
               <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-                <div><strong>Depot Latitude:</strong> {mapping.depot_lat}</div>
-                <div><strong>Depot Longitude:</strong> {mapping.depot_lon}</div>
-                <div><strong>Agent ID:</strong> {mapping.agent_id || 'Not detected'}</div>
-                <div><strong>Customer Latitude:</strong> {mapping.customer_lat}</div>
-                <div><strong>Customer Longitude:</strong> {mapping.customer_lon}</div>
-                {mapping.order_id && <div><strong>Order ID:</strong> {mapping.order_id}</div>}
-                {mapping.order_date_col && <div><strong>Order Date:</strong> {mapping.order_date_col}</div>}
-                {mapping.eta_col && <div><strong>ETA Column:</strong> {mapping.eta_col}</div>}
-                {mapping.rating_col && <div><strong>Rating Column:</strong> {mapping.rating_col}</div>}
-                {mapping.area_col && <div><strong>Area/Cluster Column:</strong> {mapping.area_col}</div>}
+                <div>
+                  <strong>Depot Latitude:</strong> {mapping.depot_lat}
+                </div>
+                <div>
+                  <strong>Depot Longitude:</strong> {mapping.depot_lon}
+                </div>
+                <div>
+                  <strong>Agent ID:</strong> {mapping.agent_id || 'Not detected'}
+                </div>
+                <div>
+                  <strong>Customer Latitude:</strong> {mapping.customer_lat}
+                </div>
+                <div>
+                  <strong>Customer Longitude:</strong> {mapping.customer_lon}
+                </div>
+                {mapping.order_id && (
+                  <div>
+                    <strong>Order ID:</strong> {mapping.order_id}
+                  </div>
+                )}
+                {mapping.order_date_col && (
+                  <div>
+                    <strong>Order Date:</strong> {mapping.order_date_col}
+                  </div>
+                )}
+                {mapping.eta_col && (
+                  <div>
+                    <strong>ETA Column:</strong> {mapping.eta_col}
+                  </div>
+                )}
+                {mapping.rating_col && (
+                  <div>
+                    <strong>Rating Column:</strong> {mapping.rating_col}
+                  </div>
+                )}
+                {mapping.area_col && (
+                  <div>
+                    <strong>Area/Cluster Column:</strong> {mapping.area_col}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -369,7 +386,8 @@ const DatasetUpload: React.FC = () => {
           </div>
 
           <div className="text-sm text-slate-600">
-            Backend status: {backendReady === null ? 'checking...' : backendReady ? 'connected' : 'not reachable'}
+            Backend status:{' '}
+            {backendReady === null ? 'checking...' : backendReady ? 'connected' : 'not reachable'}
           </div>
 
           {message && <div className="text-sm text-slate-700">{message}</div>}
