@@ -160,36 +160,6 @@ def road_adjusted_km(lat1: float, lon1: float, lat2: float, lon2: float) -> floa
     direct = haversine_km(lat1, lon1, lat2, lon2)
     return direct * 1.25
 
-def _expand_bbox(
-    lat_min: float,
-    lon_min: float,
-    lat_max: float,
-    lon_max: float,
-    pad_ratio: float = 0.20,
-    min_pad_deg: float = 0.01,
-) -> Tuple[float, float, float, float]:
-    lat_span = max(lat_max - lat_min, 0.0)
-    lon_span = max(lon_max - lon_min, 0.0)
-
-    lat_pad = max(lat_span * pad_ratio, min_pad_deg)
-    lon_pad = max(lon_span * pad_ratio, min_pad_deg)
-
-    south = lat_min - lat_pad
-    west = lon_min - lon_pad
-    north = lat_max + lat_pad
-    east = lon_max + lon_pad
-    return south, west, north, east
-
-
-def _graph_cache_name_from_bbox(
-    south: float,
-    west: float,
-    north: float,
-    east: float,
-) -> str:
-    return f"osm_drive_{south:.5f}_{west:.5f}_{north:.5f}_{east:.5f}.graphml".replace("-", "m")
-
-
 def build_preview_points(assign_df: pd.DataFrame) -> pd.DataFrame:
     """
     Build unique depot/customer preview points for matrix construction.
@@ -696,14 +666,6 @@ def matrix_cost(matrix: Dict[str, Dict[str, float]], a: str, b: str) -> float:
     return float(matrix.get(a, {}).get(b, 0.0))
 
 
-def safe_float(v: Any, default: float = 0.0) -> float:
-    try:
-        if pd.isna(v):
-            return default
-        return float(v)
-    except Exception:
-        return default
-
 def parse_order_date_series(series: pd.Series) -> pd.Series:
     text = series.astype(str).str.strip()
 
@@ -738,7 +700,7 @@ def build_routing_nodes(df: pd.DataFrame) -> pd.DataFrame:
     work = df.copy()
 
     if "is_routing_eligible" in work.columns:
-        work = work[work["is_routing_eligible"] == True].copy()
+        work = work[work["is_routing_eligible"].fillna(False).astype(bool)].copy()
 
     required = [
     "depot_id", "depot_lat", "depot_lon",
@@ -796,7 +758,7 @@ def build_amazon_order_routing_rows(df: pd.DataFrame) -> pd.DataFrame:
     work = df.copy()
 
     if "is_routing_eligible" in work.columns:
-        work = work[work["is_routing_eligible"] == True].copy()
+        work = work[work["is_routing_eligible"].fillna(False).astype(bool)].copy()
 
     required = [
         "depot_id", "depot_lat", "depot_lon",
@@ -1386,26 +1348,6 @@ def train_eta_models(df: pd.DataFrame, seed: int) -> Tuple[np.ndarray, Dict[str,
     }
     return pred_enhanced, metrics
 
-
-def static_assignment(df: pd.DataFrame, reps: int) -> pd.DataFrame:
-    work = df.copy()
-    c_lat, c_lon = work["depot_lat"].median(), work["depot_lon"].median()
-    work["angle"] = np.arctan2(work["customer_lat"] - c_lat, work["customer_lon"] - c_lon)
-    work = work.sort_values(["angle", "customer_id"]).reset_index(drop=True)
-
-    rep_ids = [f"REP-{i+1}" for i in range(reps)]
-    base = len(work) // reps
-    rem = len(work) % reps
-
-    assignments: List[str] = []
-    for i, rep in enumerate(rep_ids):
-        size = base + (1 if i < rem else 0)
-        assignments.extend([rep] * size)
-
-    work["rep_id"] = assignments[: len(work)]
-    return work.drop(columns=["angle"])
-
-
 def route_one_rep(
     group: pd.DataFrame,
     speed_kmph: float,
@@ -1546,7 +1488,6 @@ def route_all(
             "stops": ordered_stops,
         })
 
-        workload = float(stats["operational_minutes"])
         rep_rows.append({
             "rep_id": rep_id,
             "customers": int(len(grp)),
@@ -3405,7 +3346,6 @@ def add_customers_to_baseline(req: BaselineAddCustomersRequest) -> Dict[str, Any
         raise HTTPException(status_code=400, detail="No customers supplied.")
 
     assign_df = baseline_payload["assign_df"].copy()
-    distance_matrix = baseline_payload["distance_matrix"]
     baseline_req = BaselineRequest(**baseline_payload["request"])
     base_run = baseline_payload["run"]
     profile = baseline_payload.get("profile", get_run_profile(None))
