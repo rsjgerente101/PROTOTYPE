@@ -3410,14 +3410,6 @@ def add_customers_to_baseline(req: BaselineAddCustomersRequest) -> Dict[str, Any
     base_run = baseline_payload["run"]
     profile = baseline_payload.get("profile", get_run_profile(None))
 
-    current_routes, current_rep_df, current_total = route_all(
-        assign_df,
-        baseline_req.avg_speed_kmph,
-        baseline_req.service_minutes_per_stop,
-        "baseline",
-        distance_matrix,
-    )
-
     resolved_customers: List[AddedCustomerPayload] = []
     updated_assign_df = assign_df.copy()
 
