@@ -34,11 +34,7 @@ export function ComparisonTile({
           <p className="text-xs text-gray-500 mb-1">Baseline</p>
           <p className="text-2xl font-bold text-gray-900">
             {baselineValue.toFixed(2)}
-            {unit && (
-              <span className="text-sm font-normal text-gray-500 ml-1">
-                {unit}
-              </span>
-            )}
+            {unit && <span className="text-sm font-normal text-gray-500 ml-1">{unit}</span>}
           </p>
         </div>
 
@@ -46,11 +42,7 @@ export function ComparisonTile({
           <p className="text-xs text-gray-500 mb-1">Enhanced</p>
           <p className="text-2xl font-bold text-gray-900">
             {enhancedValue.toFixed(2)}
-            {unit && (
-              <span className="text-sm font-normal text-gray-500 ml-1">
-                {unit}
-              </span>
-            )}
+            {unit && <span className="text-sm font-normal text-gray-500 ml-1">{unit}</span>}
           </p>
         </div>
       </div>

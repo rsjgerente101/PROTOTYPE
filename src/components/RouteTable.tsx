@@ -7,6 +7,11 @@ interface RouteTableProps {
   title?: string;
 }
 
+const formatSalesRepName = (repId?: string | null) => {
+  if (!repId) return '';
+  return repId.replace('-AGE-', '-');
+};
+
 export function RouteTable({ routes, title }: RouteTableProps) {
   const allStops = routes.flatMap((route) =>
     route.stops.map((stop) => ({
@@ -29,27 +34,13 @@ export function RouteTable({ routes, title }: RouteTableProps) {
         <table className="w-full text-sm">
           <thead className="bg-gray-50 sticky top-0">
             <tr>
-              <th className="px-4 py-2 text-left font-medium text-gray-700">
-                Rep
-              </th>
-              <th className="px-4 py-2 text-left font-medium text-gray-700">
-                Stop
-              </th>
-              <th className="px-4 py-2 text-left font-medium text-gray-700">
-                Customer
-              </th>
-              <th className="px-4 py-2 text-left font-medium text-gray-700">
-                Order ID
-              </th>
-              <th className="px-4 py-2 text-right font-medium text-gray-700">
-                Leg (km)
-              </th>
-              <th className="px-4 py-2 text-right font-medium text-gray-700">
-                Cumulative (km)
-              </th>
-              <th className="px-4 py-2 text-right font-medium text-gray-700">
-                ETA Proxy (hr)
-              </th>
+              <th className="px-4 py-2 text-left font-medium text-gray-700">Rep</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-700">Stop</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-700">Customer</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-700">Order ID</th>
+              <th className="px-4 py-2 text-right font-medium text-gray-700">Leg (km)</th>
+              <th className="px-4 py-2 text-right font-medium text-gray-700">Cumulative (km)</th>
+              <th className="px-4 py-2 text-right font-medium text-gray-700">ETA Proxy (min)</th>
             </tr>
           </thead>
 
@@ -60,22 +51,18 @@ export function RouteTable({ routes, title }: RouteTableProps) {
                 className="hover:bg-gray-50"
               >
                 <td className="px-4 py-2 text-gray-900">
-                  {stop.representativeName}
+                  {formatSalesRepName(stop.representativeName)}
                 </td>
                 <td className="px-4 py-2 text-gray-900">{stop.stopNumber}</td>
                 <td className="px-4 py-2 text-gray-900">{stop.nodeName}</td>
-                <td className="px-4 py-2 text-gray-600">
-                  {stop.orderId ?? '-'}
-                </td>
+                <td className="px-4 py-2 text-gray-600">{stop.orderId ?? '-'}</td>
                 <td className="px-4 py-2 text-right text-gray-600">
                   {stop.legDistance.toFixed(2)}
                 </td>
                 <td className="px-4 py-2 text-right text-gray-600">
                   {stop.cumulativeDistance.toFixed(2)}
                 </td>
-                <td className="px-4 py-2 text-right text-gray-600">
-                  {stop.eta.toFixed(2)}
-                </td>
+                <td className="px-4 py-2 text-right text-gray-600">{stop.eta.toFixed(2)}</td>
               </tr>
             ))}
           </tbody>

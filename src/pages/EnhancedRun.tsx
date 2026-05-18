@@ -21,6 +21,11 @@ const DATASET_STORAGE_KEY = 'uploadedDatasetFileMeta';
 const BASELINE_STORAGE_KEY = 'baselineRunSummary';
 const ENHANCED_STORAGE_KEY = 'enhancedRunSummary';
 
+const formatSalesRepName = (repId?: string | null) => {
+  if (!repId) return '';
+  return repId.replace('-AGE-', '-');
+};
+
 const EnhancedRun: React.FC = () => {
   const navigate = useNavigate();
 
@@ -47,7 +52,6 @@ const EnhancedRun: React.FC = () => {
   useEffect(() => {
     const storedDataset = localStorage.getItem(DATASET_STORAGE_KEY);
     const storedBaseline = localStorage.getItem(BASELINE_STORAGE_KEY);
-    const storedEnhanced = localStorage.getItem(ENHANCED_STORAGE_KEY);
 
     if (storedDataset) {
       setDataset(JSON.parse(storedDataset));
@@ -55,13 +59,6 @@ const EnhancedRun: React.FC = () => {
 
     if (storedBaseline) {
       setBaselineSummary(JSON.parse(storedBaseline));
-    }
-
-    if (storedEnhanced) {
-      const parsed = JSON.parse(storedEnhanced) as StoredRunSummary;
-      // keep summary in storage only; full run will come from a fresh execution
-      // this avoids broken route rendering from incomplete summary payload
-      void parsed;
     }
   }, []);
 
@@ -85,7 +82,7 @@ const EnhancedRun: React.FC = () => {
     if (!enhancedRun) return [];
     return enhancedRun.routes.map((route) => ({
       value: route.id,
-      label: `${route.representativeName} (${route.stops.length} stops)`,
+      label: `${formatSalesRepName(route.representativeName)} (${route.stops.length} stops)`,
     }));
   }, [enhancedRun]);
 
@@ -138,15 +135,13 @@ const EnhancedRun: React.FC = () => {
       setBusy(true);
       setMessage('Running enhanced DEQ experiment on backend...');
 
-      const isAmazon = dataset.datasetRole === 'primary_reconstruction';
-
       const result = await runEnhanced({
         datasetId: dataset.id,
         baselineRunId: baselineSummary.id,
-        alphaWeight: Number(parameters.alphaWeight) || 0.60,
-        betaWeight: Number(parameters.betaWeight) || 0.40,
+        alphaWeight: Number(parameters.alphaWeight) || 0.6,
+        betaWeight: Number(parameters.betaWeight) || 0.4,
         maxIterations: Number(parameters.maxIterations) || 30,
-        borderFraction: Number(parameters.borderFraction) || 0.70,
+        borderFraction: Number(parameters.borderFraction) || 0.7,
         runProfile:
           dataset.datasetRole === 'primary_reconstruction'
             ? 'amazon_expanded_search'
@@ -179,9 +174,7 @@ const EnhancedRun: React.FC = () => {
       <div className="h-screen flex flex-col">
         <div className="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              Enhanced Route Optimization
-            </h1>
+            <h1 className="text-2xl font-bold text-gray-900">Enhanced Route Optimization</h1>
             <p className="text-sm text-gray-600">
               Greedy Nearest Neighbor + Double-Ended Queue Rebalancing
             </p>
@@ -220,8 +213,8 @@ const EnhancedRun: React.FC = () => {
                         Run the enhanced algorithm with DEQ rebalancing
                       </p>
                       <p className="text-sm text-gray-600">
-                        This stage starts from the baseline solution, then improves
-                        route assignment using priority scoring based on time difference and rating.
+                        This stage starts from the baseline solution, then improves route assignment
+                        using priority scoring based on time difference and rating.
                       </p>
                       <Button onClick={handleRun} disabled={busy || !baselineSummary}>
                         {busy ? 'Running...' : 'Run Enhanced Algorithm'}
@@ -234,7 +227,11 @@ const EnhancedRun: React.FC = () => {
               {enhancedRun && (
                 <RouteTable
                   routes={selectedRoute ? [selectedRoute] : enhancedRun.routes}
-                  title={selectedRoute ? `Route Details — ${selectedRoute.representativeName}` : 'All Representative Routes'}
+                  title={
+                    selectedRoute
+                      ? `Route Details — ${formatSalesRepName(selectedRoute.representativeName)}`
+                      : 'All Representative Routes'
+                  }
                 />
               )}
             </div>
@@ -326,9 +323,7 @@ const EnhancedRun: React.FC = () => {
                 </Card>
 
                 <Card>
-                  <h2 className="text-sm font-semibold text-gray-900 mb-3">
-                    Run Context
-                  </h2>
+                  <h2 className="text-sm font-semibold text-gray-900 mb-3">Run Context</h2>
                   <div className="space-y-2 text-sm text-gray-600">
                     <div>
                       <span className="font-medium text-gray-800">Dataset:</span>{' '}
@@ -392,9 +387,7 @@ const EnhancedRun: React.FC = () => {
                 )}
 
                 <Card>
-                  <h2 className="text-sm font-semibold text-gray-900 mb-4">
-                    Map Controls
-                  </h2>
+                  <h2 className="text-sm font-semibold text-gray-900 mb-4">Map Controls</h2>
 
                   <div className="space-y-4">
                     <div>
@@ -449,9 +442,7 @@ const EnhancedRun: React.FC = () => {
                 </Card>
 
                 <Card>
-                  <h2 className="text-sm font-semibold text-gray-900 mb-3">
-                    Enhanced KPI Summary
-                  </h2>
+                  <h2 className="text-sm font-semibold text-gray-900 mb-3">Enhanced KPI Summary</h2>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="rounded-lg bg-slate-50 p-3">
                       <p className="text-xs text-gray-500">Distance</p>
@@ -483,9 +474,7 @@ const EnhancedRun: React.FC = () => {
                 <DequePanel representatives={enhancedRun.representatives} />
 
                 <Card>
-                  <h2 className="text-sm font-semibold text-gray-900 mb-3">
-                    Quick Result Notes
-                  </h2>
+                  <h2 className="text-sm font-semibold text-gray-900 mb-3">Quick Result Notes</h2>
                   <div className="space-y-2 text-sm text-gray-600">
                     <p>
                       Distance change:{' '}

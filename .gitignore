@@ -1,3 +1,13 @@
 backend/cache/
 backend/cache/osm/
 *.graphml
+
+node_modules/
+.vite/
+dist/
+
+__pycache__/
+*.pyc
+
+.env
+.env.local

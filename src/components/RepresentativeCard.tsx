@@ -1,16 +1,19 @@
 import React from 'react';
-import { Representative } from '../types';
+import type { Representative } from '../types';
 import { UserIcon } from 'lucide-react';
 
 interface RepresentativeCardProps {
   representative: Representative;
-  onReassign?: (repId: string) => void;
   isDraggable?: boolean;
 }
 
+const formatSalesRepName = (repId?: string | null) => {
+  if (!repId) return '';
+  return repId.replace('-AGE-', '-');
+};
+
 export function RepresentativeCard({
   representative,
-  onReassign,
   isDraggable = false,
 }: RepresentativeCardProps) {
   const color = representative.color ?? '#2563eb';
@@ -31,9 +34,9 @@ export function RepresentativeCard({
           </div>
           <div>
             <p className="text-sm font-semibold text-gray-900">
-              {representative.name}
+              {formatSalesRepName(representative.name)}
             </p>
-            <p className="text-xs text-gray-500">{representative.id}</p>
+            <p className="text-xs text-gray-500">{formatSalesRepName(representative.id)}</p>
           </div>
         </div>
       </div>
@@ -59,17 +62,13 @@ export function RepresentativeCard({
         </div>
         <div>
           <p className="text-xs text-gray-500">Queue Pos.</p>
-          <p className="text-sm font-semibold text-gray-900">
-            {representative.queuePosition}
-          </p>
+          <p className="text-sm font-semibold text-gray-900">{representative.queuePosition}</p>
         </div>
       </div>
 
       <div className="mt-3 pt-3 border-t border-gray-200">
         <p className="text-xs text-gray-500 mb-1">Assigned Customers</p>
-        <p className="text-sm font-semibold text-gray-900">
-          {representative.assignedCustomers}
-        </p>
+        <p className="text-sm font-semibold text-gray-900">{representative.assignedCustomers}</p>
       </div>
     </div>
   );
