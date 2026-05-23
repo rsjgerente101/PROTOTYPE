@@ -33,6 +33,28 @@ type StoredRunSummary = {
 const BASELINE_STORAGE_KEY = 'baselineRunSummary';
 const DATASET_STORAGE_KEY = 'uploadedDatasetFileMeta';
 
+const formatSalesRepName = (repId?: string | null) => {
+  if (!repId) return '';
+  return repId.replace('-AGE-', '-');
+};
+
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRad = (v: number) => (v * Math.PI) / 180;
+  const R = 6371;
+
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 function extractCustomerNumber(name: string): number | null {
   const match = name.match(/Customer\s+(\d+)/i);
   if (!match) return null;
@@ -286,7 +308,7 @@ const BaselineRun: React.FC = () => {
                     routes={selectedRoute ? [selectedRoute] : []}
                     title={
                       selectedRoute
-                        ? `Route: ${selectedRoute.representativeName}`
+                        ? `Route: ${formatSalesRepName(selectedRoute.representativeName)}`
                         : 'Selected Route'
                     }
                   />
@@ -522,7 +544,26 @@ const BaselineRun: React.FC = () => {
                   </div>
                 </div>
 
-
+                {addedCustomers.length > 0 && (
+                  <Card className="mt-6">
+                    <h2 className="text-sm font-semibold text-gray-900 mb-3">
+                      Added Customers Preview
+                    </h2>
+                    <div className="space-y-2 text-sm text-gray-700">
+                      {addedCustomers.map((customer) => (
+                        <div key={customer.id} className="rounded border border-gray-200 p-2">
+                          <div className="font-medium">{customer.label}</div>
+                          {customer.assignedRep && (<div>Rep: {formatSalesRepName(customer.assignedRep)}</div>)}
+                          <div>Lat: {customer.lat.toFixed(6)}</div>
+                          <div>Lon: {customer.lon.toFixed(6)}</div>
+                          {customer.address && (
+                            <div className="text-xs text-gray-500 mt-1">{customer.address}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                )}
 
                 <div className="mb-6">
                   <Select
@@ -531,7 +572,7 @@ const BaselineRun: React.FC = () => {
                     onChange={setSelectedRouteId}
                     options={run.routes.map((route) => ({
                       value: route.id,
-                      label: route.representativeName,
+                      label: formatSalesRepName(route.representativeName),
                     }))}
                   />
                 </div>

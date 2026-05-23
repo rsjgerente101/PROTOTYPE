@@ -16,6 +16,11 @@ interface MapCanvasProps {
   addedCustomers?: AddedCustomer[];
 }
 
+const formatSalesRepName = (repId?: string | null) => {
+  if (!repId) return '';
+  return repId.replace('-AGE-', '-');
+};
+
 function toNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string' && value.trim().length > 0) {
@@ -373,7 +378,7 @@ export function MapCanvas({
                 >
                   {showLabels && (
                     <Tooltip direction="top" offset={[0, -5]} permanent>
-                      {`${stop.nodeName} - ${route.representativeId}`}
+                      {`${stop.nodeName} - ${formatSalesRepName(route.representativeId)}`}
                     </Tooltip>
                   )}
 
