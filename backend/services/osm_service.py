@@ -11,7 +11,6 @@ from helpers import (
     road_adjusted_km,
     ensure_preview_node_ids as helpers_ensure_preview_node_ids,
 )
-from pathlib import Path
 from config import OSM_CACHE_DIR
 
 

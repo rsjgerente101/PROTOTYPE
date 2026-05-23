@@ -1,8 +1,5 @@
 from __future__ import annotations
-from pathlib import Path
 
-import networkx as nx
-import osmnx as ox
 import io
 import json
 import math
@@ -11,10 +8,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Response
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, PlainTextResponse
-from pydantic import BaseModel
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.impute import SimpleImputer
@@ -23,28 +19,13 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-app = FastAPI(title="Delivery Prototype Backend", version="1.1.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-DATASETS: Dict[str, Dict[str, Any]] = {}
-RUNS: Dict[str, Dict[str, Any]] = {}
-
 from schemas import (
     BaselineRequest,
     EnhancedRequest,
-    AddedCustomerPayload,
     BaselineAddCustomersRequest,
 )
 
 from config import (
-    EARTH_RADIUS_KM,
-    OSM_CACHE_DIR,
     RUN_PROFILES,
     DEMO_PREVIEW_DEPOTS,
     MIN_FIXED_DEMO_NODES,
@@ -67,7 +48,6 @@ from helpers import (
     _base_reconstruct_from_mapping as helpers_base_reconstruct,
     finalize_reconstructed_dataset as helpers_finalize_reconstructed,
     haversine_km,
-    road_adjusted_km,
     ensure_preview_node_ids as helpers_ensure_preview_node_ids,
     choose_best_local_depot_cluster as helpers_choose_best_local_depot_cluster,
     assign_preview_rep_ids_uneven as helpers_assign_preview_rep_ids_uneven,
@@ -76,26 +56,14 @@ from helpers import (
 import amazon
 import zomato
 from services.metrics_service import (
-    compute_thesis_priority_scores,
-    jains_fairness,
-    workload_balance_index,
     rep_cards,
     kpis_from_totals,
 )
 from services.routing_service import (
-    route_one_rep,
     route_all,
-    append_added_customers_to_assign_df,
 )
 from services.osm_service import (
-    build_preview_points,
-    load_or_build_osm_preview_graph,
-    snap_preview_points_to_osm,
     build_preview_distance_matrix,
-    load_or_build_osm_preview_graphs,
-    build_snapped_point_lookup,
-    path_coords_from_osm,
-    build_display_leg_path,
     attach_route_display_geometry,
 )
 from services.enhancement_service import (
@@ -106,6 +74,19 @@ from services.add_customer_service import (
     process_added_customers,
     assign_new_customer_to_nearest_rep as _assign_new_customer_to_nearest_rep,
 )
+
+app = FastAPI(title="Delivery Prototype Backend", version="1.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+DATASETS: Dict[str, Dict[str, Any]] = {}
+RUNS: Dict[str, Dict[str, Any]] = {}
+
 
 # Pydantic models and configuration constants have been moved to
 # backend/schemas.py and backend/config.py respectively.
@@ -293,7 +274,7 @@ def build_routing_nodes(df: pd.DataFrame) -> pd.DataFrame:
     work = df.copy()
 
     if "is_routing_eligible" in work.columns:
-        work = work[work["is_routing_eligible"] == True].copy()
+        work = work[work["is_routing_eligible"].fillna(False).astype(bool)].copy()
 
     required = [
         "depot_id",
@@ -647,112 +628,8 @@ def train_eta_models(df: pd.DataFrame, seed: int) -> Tuple[np.ndarray, Dict[str,
 # Routing helpers moved to backend/routing_service.py
 
 
-def route_all(
-    assign_df: pd.DataFrame,
-    speed_kmph: float,
-    service_min: float,
-    name: str,
-    distance_matrix: Dict[str, Dict[str, float]],
-) -> Tuple[List[Dict[str, Any]], pd.DataFrame, Dict[str, float]]:
-    work = ensure_preview_node_ids(assign_df)
-    routes = []
-    rep_rows = []
-
-    palette = [
-        "#2563eb",
-        "#16a34a",
-        "#dc2626",
-        "#ca8a04",
-        "#9333ea",
-        "#0891b2",
-        "#db2777",
-        "#4f46e5",
-    ]
-
-    for idx, (rep_id, grp) in enumerate(work.groupby("rep_id"), start=1):
-        ordered_stops, stats = route_one_rep(
-            grp, speed_kmph, service_min, distance_matrix
-        )
-        color = palette[(idx - 1) % len(palette)]
-
-        routes.append(
-            {
-                "id": f"{name}-{rep_id}",
-                "representativeId": rep_id,
-                "representativeName": rep_id,
-                "color": color,
-                "stops": ordered_stops,
-            }
-        )
-
-        rep_rows.append(
-            {
-                "rep_id": rep_id,
-                "customers": int(len(grp)),
-                "workload_min": float(stats["operational_minutes"]),
-                "distance_km": float(stats["distance_km"]),
-                "travel_minutes": float(stats["travel_minutes"]),
-                "operational_minutes": float(stats["operational_minutes"]),
-                "centroid_lat": float(grp["customer_lat"].mean()),
-                "centroid_lon": float(grp["customer_lon"].mean()),
-            }
-        )
-
-    rep_df = pd.DataFrame(rep_rows)
-    total = {
-        "distance_km": float(rep_df["distance_km"].sum()) if not rep_df.empty else 0.0,
-        "travel_minutes": (
-            float(rep_df["travel_minutes"].sum()) if not rep_df.empty else 0.0
-        ),
-        "operational_minutes": (
-            float(rep_df["operational_minutes"].sum()) if not rep_df.empty else 0.0
-        ),
-    }
-    return routes, rep_df, total
-
-
 # KPI and fairness implementations moved to backend/metrics_service.py
 
-
-def kpis_from_totals(
-    total: Dict[str, float], rep_df: pd.DataFrame, dataset_size: int
-) -> Dict[str, Any]:
-    fairness = jains_fairness(rep_df["workload_min"].tolist())
-    wbi = workload_balance_index(rep_df["workload_min"].tolist())
-
-    n_routes = max(1, len(rep_df))
-
-    total_distance_km = float(total["distance_km"])
-    total_travel_hr = float(total["travel_minutes"]) / 60.0
-    total_operational_hr = float(total["operational_minutes"]) / 60.0
-
-    avg_total_distance = total_distance_km / n_routes
-    avg_travel_time = total_travel_hr / n_routes
-
-    assigned_customers = int(rep_df["customers"].sum()) if not rep_df.empty else 0
-    coverage_ratio = (assigned_customers / max(1, dataset_size)) * 100.0
-
-    return {
-        "totalDistance": round(total_distance_km, 2),
-        "travelTime": round(total_travel_hr, 2),
-        "operationalTime": round(total_operational_hr, 2),
-        "computeTime": round(max(0.5, dataset_size / 80.0), 2),
-        "fairness": round(fairness, 6),
-        "workloadBalance": round(wbi * 100.0, 2),
-        "coverage": round(coverage_ratio, 2),
-        "scalability": round(dataset_size / n_routes, 2),
-        # new compare-specific fields
-        "avgTotalDistance": round(avg_total_distance, 2),
-        "avgTravelTime": round(avg_travel_time, 2),
-        "coverageRatio": round(coverage_ratio, 2),
-        # compatibility fields
-        "totalTime": round(total_operational_hr, 2),
-        "numberOfStops": assigned_customers,
-        "delayScore": 0.0,
-        "ratingPenalty": 0.0,
-        "workloadBalanceIndex": round(wbi * 100.0, 2),
-        "jainsFairnessIndex": round(fairness, 6),
-    }
 
 
 def make_algorithm_run(
@@ -845,36 +722,6 @@ def swap_candidates(
     light_idx = light.head(light_take)["index"].astype(int).tolist()
 
     return heavy_idx, light_idx
-
-
-def evaluate_assignment(
-    assign_df: pd.DataFrame,
-    speed_kmph: float,
-    service_min: float,
-    distance_matrix: Dict[str, Dict[str, float]],
-) -> Dict[str, Any]:
-    routes, rep_df, total = route_all(
-        assign_df, speed_kmph, service_min, "eval", distance_matrix
-    )
-    fairness = (
-        jains_fairness(rep_df["workload_min"].tolist()) if not rep_df.empty else 1.0
-    )
-    wbi = (
-        workload_balance_index(rep_df["workload_min"].tolist())
-        if not rep_df.empty
-        else 0.0
-    )
-
-    assigned_customers = int(rep_df["customers"].sum()) if not rep_df.empty else 0
-    coverage_ratio = assigned_customers / max(1, len(assign_df))
-    return {
-        "routes": routes,
-        "rep_df": rep_df,
-        "total": total,
-        "fairness": fairness,
-        "wbi": wbi,
-        "coverage_ratio": coverage_ratio,
-    }
 
 
 # Enhancement logic (DEQ) moved to backend/enhancement_service.py
@@ -984,15 +831,6 @@ def assign_preview_rep_ids_uneven(
 ) -> pd.DataFrame:
     return helpers_assign_preview_rep_ids_uneven(preview_df, num_representatives)
     #             break
-
-    assigned = []
-    for rep_id, size in zip(rep_ids, sizes):
-        assigned.extend([rep_id] * size)
-
-    work["rep_id"] = assigned[:n]
-
-    return work.drop(columns=["angle", "to_depot_km"], errors="ignore")
-
 
 def choose_best_local_depot_cluster(
     df: pd.DataFrame,

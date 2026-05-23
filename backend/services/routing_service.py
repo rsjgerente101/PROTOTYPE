@@ -1,6 +1,5 @@
 from typing import Any, Dict, List, Tuple
 import pandas as pd
-import numpy as np
 import uuid
 from helpers import ensure_preview_node_ids, haversine_km
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
-import numpy as np
 import pandas as pd
 
 from helpers import (
@@ -11,7 +10,7 @@ from helpers import (
     choose_best_local_depot_cluster,
     assign_preview_rep_ids_uneven,
 )
-from typing import Callable, Tuple, List
+from typing import Callable, Tuple
 
 
 def amazon_distance_polish_assignment(

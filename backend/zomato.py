@@ -5,7 +5,6 @@ import pandas as pd
 
 from helpers import (
     _base_reconstruct_from_mapping,
-    haversine_km,
     finalize_reconstructed_dataset,
 )
 
