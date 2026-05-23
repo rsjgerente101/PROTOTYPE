@@ -1,5 +1,8 @@
 from __future__ import annotations
+from pathlib import Path
 
+import networkx as nx
+import osmnx as ox
 import io
 import json
 import math
@@ -770,7 +773,7 @@ def build_routing_nodes(df: pd.DataFrame) -> pd.DataFrame:
     work = df.copy()
 
     if "is_routing_eligible" in work.columns:
-        work = work[work["is_routing_eligible"] == True].copy()
+        work = work[work["is_routing_eligible"].fillna(False).astype(bool)].copy()
 
     required = [
         "depot_id",
@@ -842,7 +845,7 @@ def build_amazon_order_routing_rows(df: pd.DataFrame) -> pd.DataFrame:
     work = df.copy()
 
     if "is_routing_eligible" in work.columns:
-        work = work[work["is_routing_eligible"] == True].copy()
+        work = work[work["is_routing_eligible"].fillna(False).astype(bool)].copy()
 
     required = [
         "depot_id",
@@ -1751,7 +1754,6 @@ def route_all(
             }
         )
 
-        workload = float(stats["operational_minutes"])
         rep_rows.append(
             {
                 "rep_id": rep_id,
