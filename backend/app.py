@@ -2426,10 +2426,37 @@ def make_algorithm_run(
         "notes": notes or [],
     }
 
+# ============================================================
+# SECTION 10: Enhanced DEQ rebalancing logic
+# Purpose:
+# - Improves the baseline assignment by evaluating possible customer
+#   movements or swaps between representatives.
+# - Uses workload/fairness, distance, time, and priority score conditions
+#   to decide whether a reassignment should be accepted.
+# - Applies the Double-Ended Queue concept by prioritizing representatives
+#   based on workload and priority score.
+#
+# Defense note:
+# - This is the enhanced part of the system. The baseline finds routes
+#   using GNN, while the enhanced model attempts to rebalance assignments
+#   without worsening operational performance.
+# ============================================================
 
 def border_candidates(
     assign_df: pd.DataFrame, heavy_rep: str, light_rep: str, fraction: float
 ) -> List[int]:
+    """
+    Selects candidate customers from a heavier representative for possible transfer.
+
+    Purpose:
+    - Finds customers near the boundary between a heavy representative and
+      a lighter representative.
+    - Limits the search using border_fraction so the enhanced algorithm does
+      not evaluate every possible customer movement.
+
+    Used by:
+    - Enhanced DEQ reassignment search.
+    """
     heavy = assign_df[assign_df["rep_id"] == heavy_rep].copy()
     light = assign_df[assign_df["rep_id"] == light_rep].copy()
 
@@ -2457,8 +2484,14 @@ def swap_candidates(
     fraction: float,
 ) -> Tuple[List[int], List[int]]:
     """
-    Candidate rows for one-for-one swap search.
-    We take a border subset from both reps, guided by proximity toward the other rep.
+    Selects candidate customers from two representatives for possible swapping.
+
+    Purpose:
+    - Finds near-border customers from both the heavy and light representative.
+    - Supports one-for-one reassignment attempts when direct movement is not enough.
+
+    Notes:
+    - This keeps the enhanced search focused on practical route-border changes.
     """
     heavy = assign_df[assign_df["rep_id"] == heavy_rep].copy()
     light = assign_df[assign_df["rep_id"] == light_rep].copy()
@@ -2503,6 +2536,17 @@ def evaluate_assignment(
     service_min: float,
     distance_matrix: Dict[str, Dict[str, float]],
 ) -> Dict[str, Any]:
+    """
+    Evaluates a complete assignment by rerouting all representatives.
+
+    Purpose:
+    - Recomputes routes after a possible move or swap.
+    - Measures total distance, travel time, operational time, fairness,
+      and workload balance.
+
+    Used by:
+    - Enhanced DEQ acceptance checking.
+    """
     routes, rep_df, total = route_all(
         assign_df, speed_kmph, service_min, "eval", distance_matrix
     )
@@ -2557,6 +2601,21 @@ def enhance_assignment(
     distance_matrix: Dict[str, Dict[str, float]],
     is_zomato_mode: bool = False,
 ) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
+    """
+    Performs enhanced DEQ-based assignment rebalancing.
+
+    Purpose:
+    - Starts from the baseline customer-to-representative assignment.
+    - Identifies overloaded and underloaded representatives.
+    - Tests candidate moves/swaps between representatives.
+    - Accepts changes only when fairness improves and distance/time
+      constraints are not worsened beyond tolerance.
+
+    Defense note:
+    - This function implements the main enhancement over the baseline.
+    - It connects the DEQ concept with operational constraints such as
+      workload balance, travel distance, and service time.
+    """
     current = ensure_preview_node_ids(assign_df.copy())
     logs: List[Dict[str, Any]] = []
     current_eval = evaluate_assignment(
@@ -2927,13 +2986,15 @@ def amazon_distance_polish_assignment(
     max_wbi_increase: float = 0.0,
 ) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
     """
-    Amazon-only final improvement pass.
+    Applies an Amazon-specific final distance improvement pass.
 
-    The normal DEQ pass prioritizes fairness first. For Amazon, fairness often reaches
-    ~1.00 quickly, so strict fairness-gain rules can reject distance-improving moves.
-    This pass only runs for the Amazon role and accepts a move when it reduces
-    distance/time while keeping fairness very high and workload balance within a
-    small tolerance.
+    Purpose:
+    - Reviews Amazon assignments after DEQ rebalancing.
+    - Attempts distance-improving swaps while preserving workload/fairness rules.
+
+    Notes:
+    - This is dataset-specific tuning for Amazon preview behavior.
+    - It should not replace the general enhanced DEQ logic.
     """
     current = ensure_preview_node_ids(assign_df.copy()).reset_index(drop=True)
     logs: List[Dict[str, Any]] = []
