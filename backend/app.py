@@ -1758,8 +1758,30 @@ def validation_summary(df: pd.DataFrame) -> Dict[str, Any]:
         },
     }
 
+# ============================================================
+# SECTION 7: ETA feature preparation and model training
+# Purpose:
+# - Builds simple prediction features for delivery time estimation.
+# - Trains baseline/enhanced ETA models used for route scoring.
+# - Provides training metrics such as MAE, RMSE, and R².
+#
+# Defense note:
+# - ETA prediction supports the routing prototype by estimating travel
+#   behavior from distance, rating, and area/cluster information.
+# ============================================================
 
 def build_eta_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Prepares features used for ETA model training.
+
+    Purpose:
+    - Computes direct depot-to-customer distance.
+    - Fills missing rating and observed ETA values.
+    - Produces a clean feature table for model training.
+
+    Used by:
+    - train_eta_models.
+    """
     feat = df.copy()
     feat["direct_distance_km"] = [
         haversine_km(r.depot_lat, r.depot_lon, r.customer_lat, r.customer_lon)
@@ -1775,6 +1797,18 @@ def build_eta_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def train_eta_models(df: pd.DataFrame, seed: int) -> Tuple[np.ndarray, Dict[str, Any]]:
+    """
+    Trains ETA prediction models and returns predicted ETA values.
+
+    Purpose:
+    - Uses Ridge regression as a simpler baseline-style model.
+    - Uses Random Forest as the enhanced prediction model.
+    - Returns model performance metrics for reporting.
+
+    Defense note:
+    - The routing algorithm mainly depends on distance and workload, but
+      ETA prediction provides additional operational context.
+    """
     feat = build_eta_features(df)
     target = feat["observed_eta_min"].values
     features = feat[["direct_distance_km", "rating", "area"]]
@@ -1844,8 +1878,30 @@ def train_eta_models(df: pd.DataFrame, seed: int) -> Tuple[np.ndarray, Dict[str,
     }
     return pred_enhanced, metrics
 
+# ============================================================
+# SECTION 8: Baseline routing and workload construction
+# Purpose:
+# - Assigns customers to representatives.
+# - Builds route order using Greedy Nearest Neighbor.
+# - Computes distance, travel time, operational time, and workload.
+#
+# Defense note:
+# - The baseline routing process follows a distance-driven GNN approach
+#   using the distance matrix built from OSM/Dijkstra or fallback costs.
+# ============================================================
 
 def static_assignment(df: pd.DataFrame, reps: int) -> pd.DataFrame:
+    """
+    Creates a simple baseline assignment of customers to representatives.
+
+    Purpose:
+    - Sorts customers spatially by angle around the depot.
+    - Distributes customers across the requested number of representatives.
+
+    Notes:
+    - This is a fallback/static assignment helper. Other dataset-specific
+      assignment logic may be used for Amazon/Zomato preview runs.
+    """
     work = df.copy()
     c_lat, c_lon = work["depot_lat"].median(), work["depot_lon"].median()
     work["angle"] = np.arctan2(
@@ -1867,12 +1923,14 @@ def static_assignment(df: pd.DataFrame, reps: int) -> pd.DataFrame:
 
 def compute_normalized_delay_series(df: pd.DataFrame) -> pd.Series:
     """
-    Computes normalized delivery delay ΔT.
+    Computes normalized delay values used in workload calculation.
 
-    Paper-aligned version:
-        ΔT = (Time_taken - mean(Time_taken)) / std(Time_taken)
+    Formula:
+    - ΔT = (Time Taken - mean(Time Taken)) / std(Time Taken)
 
-    If observed_eta_min is your Time_taken equivalent, use it.
+    Purpose:
+    - Converts observed ETA/time taken into a normalized delay score.
+    - Allows delay to contribute to workload without dominating distance/time.
     """
     if "observed_eta_min" not in df.columns:
         return pd.Series(0.0, index=df.index)
@@ -1894,6 +1952,17 @@ def route_one_rep(
     distance_matrix: Dict[str, Dict[str, float]],
     delay_lambda: float = 0.5,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, float]]:
+    """
+    Builds one representative route using Greedy Nearest Neighbor.
+
+    Purpose:
+    - Starts from the depot.
+    - Repeatedly selects the nearest unvisited customer based on matrix cost.
+    - Computes leg distance, cumulative distance, ETA, and workload contribution.
+
+    Defense note:
+    - This is the core baseline routing step where GNN is applied.
+    """
     work = ensure_preview_node_ids(group.copy())
     work["delay_score"] = compute_normalized_delay_series(work)
     rows = work.to_dict("records")
@@ -1977,6 +2046,14 @@ def append_added_customers_to_assign_df(
     assign_df: pd.DataFrame,
     customers: List[AddedCustomerPayload],
 ) -> pd.DataFrame:
+    """
+    Appends manually added customers to an existing assignment DataFrame.
+
+    Purpose:
+    - Creates backend-compatible rows for customers added from the map UI.
+    - Assigns generated customer/order/node IDs.
+    - Preserves the same schema used by normal routing rows.
+    """
     work = ensure_preview_node_ids(assign_df.copy())
 
     if work.empty:
@@ -2038,6 +2115,20 @@ def route_all(
     name: str,
     distance_matrix: Dict[str, Dict[str, float]],
 ) -> Tuple[List[Dict[str, Any]], pd.DataFrame, Dict[str, float]]:
+    """
+    Routes all representatives and summarizes their route statistics.
+
+    Purpose:
+    - Groups assigned customers by representative.
+    - Calls route_one_rep for each representative.
+    - Builds route objects for the frontend map/table.
+    - Creates per-representative workload, distance, and time summaries.
+
+    Used by:
+    - Baseline run.
+    - Enhanced evaluation.
+    - Add-customer rerouting.
+    """
     work = ensure_preview_node_ids(assign_df)
     routes = []
     rep_rows = []
@@ -2094,6 +2185,17 @@ def route_all(
     }
     return routes, rep_df, total
 
+# ============================================================
+# SECTION 9: Priority scoring, fairness, workload, and KPI metrics
+# Purpose:
+# - Computes DEQ priority scores.
+# - Measures workload balance and fairness.
+# - Builds KPI summaries used in the frontend comparison page.
+#
+# Defense note:
+# - These metrics connect the implementation to the thesis evaluation:
+#   distance, travel time, operational time, WBI, JFI, and coverage ratio.
+# ============================================================
 
 def compute_thesis_priority_scores(
     assign_df: pd.DataFrame,
@@ -2102,10 +2204,19 @@ def compute_thesis_priority_scores(
     beta: float = 0.40,
 ) -> pd.DataFrame:
     """
-    Thesis priority score:
-        PS = alpha * (Delta T) + beta * (1 - Rating)
+    Computes the DEQ priority score for each representative.
 
-    Lower PS = higher queue priority.
+    Formula:
+    - PS = alpha * ΔT + beta * (1 - Rating)
+
+    Purpose:
+    - Ranks representatives based on delay/workload and rating.
+    - Lower priority score means the representative is prioritized earlier
+      in the queue.
+
+    Used by:
+    - Enhanced DEQ rebalancing.
+    - Representative card/queue display.
     """
     if rep_df.empty:
         return rep_df.copy()
@@ -2152,6 +2263,16 @@ def compute_thesis_priority_scores(
 
 
 def jains_fairness(values: List[float]) -> float:
+    """
+    Computes Jain's Fairness Index.
+
+    Purpose:
+    - Measures how evenly workload is distributed across representatives.
+    - Higher values indicate better fairness.
+
+    Defense note:
+    - The thesis target is typically close to 1.0, such as JFI ≥ 0.95.
+    """
     arr = np.array(values, dtype=float)
     if len(arr) == 0 or np.allclose(arr.sum(), 0):
         return 1.0
@@ -2160,10 +2281,14 @@ def jains_fairness(values: List[float]) -> float:
 
 def workload_balance_index(values: List[float]) -> float:
     """
-        WBI = sigma(W) / mu(W)
+    Computes Workload Balance Index.
 
-    Lower is better.
-    Example display can be percentage: WBI * 100
+    Formula:
+    - WBI = standard deviation of workload / mean workload
+
+    Purpose:
+    - Measures workload imbalance across representatives.
+    - Lower values indicate better balance.
     """
     arr = np.array(values, dtype=float)
     if len(arr) == 0:
@@ -2177,6 +2302,14 @@ def workload_balance_index(values: List[float]) -> float:
 def rep_cards(
     rep_df: pd.DataFrame, assign_df: Optional[pd.DataFrame] = None
 ) -> List[Dict[str, Any]]:
+    """
+    Builds representative summary cards for the frontend.
+
+    Purpose:
+    - Converts per-representative route metrics into UI-ready objects.
+    - Includes workload, priority score, queue position, assigned customers,
+      distance, and total time.
+    """
     if rep_df.empty:
         return []
 
@@ -2219,6 +2352,14 @@ def rep_cards(
 def kpis_from_totals(
     total: Dict[str, float], rep_df: pd.DataFrame, dataset_size: int
 ) -> Dict[str, Any]:
+    """
+    Builds KPI values for baseline/enhanced comparison.
+
+    Purpose:
+    - Computes total distance, travel time, operational time, fairness,
+      workload balance, coverage, and averages.
+    - Returns the metric structure expected by the React frontend.
+    """
     fairness = jains_fairness(rep_df["workload_min"].tolist())
     wbi = workload_balance_index(rep_df["workload_min"].tolist())
 
@@ -2267,6 +2408,13 @@ def make_algorithm_run(
     notes: Optional[List[str]] = None,
     assign_df: Optional[pd.DataFrame] = None,
 ) -> Dict[str, Any]:
+    """
+    Builds the final algorithm run payload returned to the frontend.
+
+    Purpose:
+    - Combines routes, representative cards, KPIs, training metrics,
+      and run notes into one API response.
+    """
     return {
         "id": str(uuid.uuid4()),
         "name": name,
