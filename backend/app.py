@@ -120,8 +120,30 @@ AMAZON_FIXED_DEMO_AGENTS = 0
 AMAZON_DEFAULT_REPRESENTATIVES = 6
 AMAZON_MIN_PREVIEW_STOPS = 60
 
+# ============================================================
+# SECTION 3: Request models / input schemas
+# Purpose:
+# - Defines the expected request body structure for the frontend.
+# - Validates dataset field mapping, baseline run parameters,
+#   enhanced run parameters, and added-customer payloads.
+#
+# note:
+# - These Pydantic models act as a validation layer before the
+#   backend executes routing, reconstruction, or optimization logic.
+# ============================================================
 
 class FieldMapping(BaseModel):
+    """
+    Stores the frontend-to-backend column mapping for uploaded CSV files.
+
+    Used by:
+    - Dataset validation endpoint.
+    - Dataset reconstruction functions.
+
+    Notes:
+    - Required fields identify depot/customer coordinates.
+    - Optional fields support order date, ETA, rating, area, and agent ID.
+    """
     depot_id: Optional[str] = None
     depot_lat: str
     depot_lon: str
@@ -137,6 +159,16 @@ class FieldMapping(BaseModel):
 
 
 class BaselineRequest(BaseModel):
+    """
+    Stores parameters for the baseline route generation run.
+
+    Used by:
+    - /api/runs/baseline endpoint.
+
+    Notes:
+    - Controls number of representatives, travel speed, service time,
+      random seed, and selected run profile.
+    """
     dataset_id: str
     num_representatives: int = 4
     avg_speed_kmph: float = 40.0
@@ -146,6 +178,16 @@ class BaselineRequest(BaseModel):
 
 
 class EnhancedRequest(BaseModel):
+    """
+    Stores parameters for enhanced DEQ rebalancing.
+
+    Used by:
+    - /api/runs/enhanced endpoint.
+
+    Notes:
+    - alpha_weight and beta_weight control the priority score formula.
+    - max_iterations and border_fraction control the rebalancing search.
+    """
     dataset_id: str
     baseline_run_id: str
     alpha_weight: Optional[float] = None
@@ -156,6 +198,16 @@ class EnhancedRequest(BaseModel):
 
 
 class AddedCustomerPayload(BaseModel):
+    """
+    Represents one new customer manually added from the frontend map.
+
+    Used by:
+    - /api/runs/baseline/add-customers endpoint.
+
+    Notes:
+    - The backend assigns the added customer to the nearest suitable
+      representative and then reroutes the baseline result.
+    """
     label: str
     lat: float
     lon: float
@@ -165,11 +217,46 @@ class AddedCustomerPayload(BaseModel):
 
 
 class BaselineAddCustomersRequest(BaseModel):
+    """
+    Groups added customers under an existing baseline run.
+
+    Used by:
+    - Add-customer rerouting workflow.
+
+    Notes:
+    - baseline_run_id tells the backend which previous baseline result
+      should be updated.
+    """
     baseline_run_id: str
     customers: List[AddedCustomerPayload]
 
+# ============================================================
+# SECTION 4: Distance, OSM, and map geometry helpers
+# Purpose:
+# - Computes direct and road-adjusted distance estimates.
+# - Builds preview distance matrices for baseline and enhanced routing.
+# - Uses OSM/Dijkstra when feasible, with a proxy fallback when the
+#   preview area is too large or OSM lookup fails.
+# - Generates map display geometry for route polylines.
+#
+# Note:
+# - The baseline routing uses Greedy Nearest Neighbor over a distance
+#   matrix. OSM shortest paths are preferred for route realism, while
+#   the road-adjusted fallback keeps the prototype fast and reliable.
+# ============================================================
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """
+    Computes straight-line distance between two latitude/longitude points.
+
+    Used by:
+    - Fallback distance estimation.
+    - Depot/customer filtering.
+    - Candidate selection and workload calculations.
+
+    Notes:
+    - This is faster than OSM routing and is used as a reliable fallback.
+    """
     lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
     dlat = lat2 - lat1
     dlon = lon2 - lon1
@@ -182,9 +269,15 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 def road_adjusted_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """
-    Fast proxy for road-network cost.
-    Keeps runtime close to current haversine approach, but inflates distance
-    to better approximate road travel than straight-line geometry.
+    Computes a fast road-distance proxy from haversine distance.
+
+    Purpose:
+    - Inflates straight-line distance to approximate real travel distance.
+    - Keeps routing responsive when OSM graph lookup is skipped or fails.
+
+    Notes:
+    - This is not a true road-network path, but it is more realistic than
+      pure straight-line distance.
     """
     direct = haversine_km(lat1, lon1, lat2, lon2)
     return direct * 1.25
@@ -326,8 +419,20 @@ def build_preview_distance_matrix(
     osm_threshold_km: float = 14.0,
 ) -> Dict[str, Dict[str, float]]:
     """
-    Build preview-only pairwise cost matrix using OSM shortest-path lengths.
-    Falls back to road_adjusted_km if graph download/snap/path fails.
+    Builds the pairwise distance matrix used by the routing algorithm.
+
+    Purpose:
+    - Creates depot-to-customer and customer-to-customer costs.
+    - Uses OSM shortest-path distance when the preview area is manageable.
+    - Falls back to road-adjusted haversine distance for large/spread-out
+      previews or OSM failures.
+
+    Used by:
+    - Baseline route generation.
+    - Enhanced DEQ evaluation and rerouting.
+
+    note:
+    - This is where Dijkstra-derived travel cost enters the routing process.
     """
     work = ensure_preview_node_ids(assign_df)
     if work.empty:
@@ -543,6 +648,17 @@ def attach_route_display_geometry(
     routes: List[Dict[str, Any]],
     assign_df: pd.DataFrame,
 ) -> List[Dict[str, Any]]:
+    """
+    Attaches visual route geometry for frontend map rendering.
+
+    Purpose:
+    - Adds legPath and returnPath coordinates to each route.
+    - Allows the React Leaflet map to draw route lines more clearly.
+
+    Notes:
+    - If OSM path geometry is unavailable, the frontend can still display
+      fallback straight-line route segments.
+    """
     work = ensure_preview_node_ids(assign_df)
     if work.empty:
         return routes
