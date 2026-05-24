@@ -1129,7 +1129,7 @@ def build_amazon_order_routing_rows(df: pd.DataFrame) -> pd.DataFrame:
 # - Infers whether the dataset is Amazon, Zomato, or generic.
 # - Converts raw or reconstructed datasets into a common route-ready schema.
 #
-# Defense note:
+# note:
 # - This section standardizes different public datasets so the same
 #   baseline and enhanced routing algorithms can process them.
 # ============================================================
@@ -1317,7 +1317,7 @@ def reconstruct_raw_amazon_dataset(
     - Computes direct depot-to-customer distance.
     - Marks extreme distance outliers as not routing-eligible.
 
-    Defense note:
+    note:
     - Amazon does not always provide a direct agent ID, so the prototype
       synthesizes one for representative-level routing and comparison.
     """
@@ -1429,7 +1429,7 @@ def reconstruct_raw_zomato_dataset(
     - Builds customer_node_id from destination coordinates.
     - Computes distance, demand count, rating, ETA, and eligibility fields.
 
-    Defense note:
+    note:
     - Unlike Amazon, Zomato can provide a direct delivery person/agent ID.
     """
     out = _base_reconstruct_from_mapping(df, mapping)
@@ -1765,7 +1765,7 @@ def validation_summary(df: pd.DataFrame) -> Dict[str, Any]:
 # - Trains baseline/enhanced ETA models used for route scoring.
 # - Provides training metrics such as MAE, RMSE, and R².
 #
-# Defense note:
+# note:
 # - ETA prediction supports the routing prototype by estimating travel
 #   behavior from distance, rating, and area/cluster information.
 # ============================================================
@@ -1805,7 +1805,7 @@ def train_eta_models(df: pd.DataFrame, seed: int) -> Tuple[np.ndarray, Dict[str,
     - Uses Random Forest as the enhanced prediction model.
     - Returns model performance metrics for reporting.
 
-    Defense note:
+    note:
     - The routing algorithm mainly depends on distance and workload, but
       ETA prediction provides additional operational context.
     """
@@ -1885,7 +1885,7 @@ def train_eta_models(df: pd.DataFrame, seed: int) -> Tuple[np.ndarray, Dict[str,
 # - Builds route order using Greedy Nearest Neighbor.
 # - Computes distance, travel time, operational time, and workload.
 #
-# Defense note:
+# note:
 # - The baseline routing process follows a distance-driven GNN approach
 #   using the distance matrix built from OSM/Dijkstra or fallback costs.
 # ============================================================
@@ -1965,7 +1965,7 @@ def route_one_rep(
     - Repeatedly selects the nearest unvisited customer based on matrix cost.
     - Computes leg distance, cumulative distance, ETA, and workload contribution.
 
-    Defense note:
+    note:
     - This is the core baseline routing step where GNN is applied.
     """
     work = ensure_preview_node_ids(group.copy())
@@ -2181,7 +2181,7 @@ def route_all(
 # - Measures workload balance and fairness.
 # - Builds KPI summaries used in the frontend comparison page.
 #
-# Defense note:
+# note:
 # - These metrics connect the implementation to the thesis evaluation:
 #   distance, travel time, operational time, WBI, JFI, and coverage ratio.
 # ============================================================
@@ -2259,7 +2259,7 @@ def jains_fairness(values: List[float]) -> float:
     - Measures how evenly workload is distributed across representatives.
     - Higher values indicate better fairness.
 
-    Defense note:
+    note:
     - The thesis target is typically close to 1.0, such as JFI ≥ 0.95.
     """
     arr = np.array(values, dtype=float)
@@ -2425,7 +2425,7 @@ def make_algorithm_run(
 # - Applies the Double-Ended Queue concept by prioritizing representatives
 #   based on workload and priority score.
 #
-# Defense note:
+# note:
 # - This is the enhanced part of the system. The baseline finds routes
 #   using GNN, while the enhanced model attempts to rebalance assignments
 #   without worsening operational performance.
@@ -2600,7 +2600,7 @@ def enhance_assignment(
     - Accepts changes only when fairness improves and distance/time
       constraints are not worsened beyond tolerance.
 
-    Defense note:
+    note:
     - This function implements the main enhancement over the baseline.
     - It connects the DEQ concept with operational constraints such as
       workload balance, travel distance, and service time.
@@ -4059,7 +4059,7 @@ def preview_summary_from_assign_df(assign_df: pd.DataFrame) -> Dict[str, Any]:
 # - Supports dataset validation, dataset metadata, baseline routing,
 #   add-customer rerouting, enhanced DEQ routing, and export/download.
 #
-# Defense note:
+# note:
 # - The frontend does not directly run routing algorithms. It sends API
 #   requests to these endpoints, and the backend returns route/KPI payloads.
 # ============================================================
@@ -4239,7 +4239,7 @@ def run_baseline(req: BaselineRequest) -> Dict[str, Any]:
     - Runs GNN-based route construction.
     - Returns routes, representative summaries, KPIs, and map data.
 
-    Defense note:
+    note:
     - This endpoint represents the baseline GNN + Dijkstra workflow.
     """
     print("run_baseline started")
@@ -4440,7 +4440,7 @@ def run_baseline(req: BaselineRequest) -> Dict[str, Any]:
 # - Assigns each new customer to the nearest suitable representative.
 # - Rebuilds the distance matrix and reroutes the updated baseline result.
 #
-# Defense note:
+# note:
 # - Added customers are processed sequentially. After one customer is
 #   assigned, it becomes part of the route state before the next customer
 #   is assigned. This prevents all added customers from automatically
@@ -4586,7 +4586,7 @@ def assign_new_customer_to_nearest_rep(
     - Selects the route with the nearest existing stop.
     - Uses current workload count as a tie-breaker.
 
-    Defense note:
+    note:
     - This keeps added-customer assignment spatially reasonable instead
       of assigning all new customers to a fixed representative.
     """
@@ -4691,7 +4691,7 @@ def run_enhanced(req: EnhancedRequest) -> Dict[str, Any]:
     - Recalculates routes and KPIs after accepted changes.
     - Returns the enhanced route result for comparison.
 
-    Defense note:
+    note:
     - This endpoint represents the enhanced algorithm evaluated against
       the baseline output.
     """
