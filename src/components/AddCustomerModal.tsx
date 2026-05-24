@@ -107,36 +107,35 @@ function SimplifiedPicker({
     return null;
   }
 
-    return (
-        <div className="rounded-md p-3">
-
-            <div className="mb-2 relative">
-                <input
-                    placeholder="Search place or address"
-                    className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
-                    onChange={(e) => search(e.target.value)}
-                />
-                {results.length > 0 && (
-                    <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded max-h-40 overflow-auto z-[9999]">
-                        {results.map((r: any) => (
-                            <button
-                                key={r.place_id}
-                                type="button"
-                                className="block w-full text-left px-2 py-1 hover:bg-slate-100 text-sm"
-                                onClick={() => {
-                                    const lat = Number(r.lat);
-                                    const lon = Number(r.lon);
-                                    const display = r.display_name;
-                                    onChange({ lat, lon, address: display, locationSet: true });
-                                    setResults([]);
-                                }}
-                            >
-                                {r.display_name}
-                            </button>
-                        ))}
-                    </div>
-                )}
-            </div>
+  return (
+    <div className="rounded-md p-3">
+      <div className="mb-2 relative">
+        <input
+          placeholder="Search place or address"
+          className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
+          onChange={(e) => search(e.target.value)}
+        />
+        {results.length > 0 && (
+          <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded max-h-40 overflow-auto z-[9999]">
+            {results.map((r: any) => (
+              <button
+                key={r.place_id}
+                type="button"
+                className="block w-full text-left px-2 py-1 hover:bg-slate-100 text-sm"
+                onClick={() => {
+                  const lat = Number(r.lat);
+                  const lon = Number(r.lon);
+                  const display = r.display_name;
+                  onChange({ lat, lon, address: display, locationSet: true });
+                  setResults([]);
+                }}
+              >
+                {r.display_name}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="mb-2 rounded overflow-hidden" style={{ height: '40vh', minHeight: 200 }}>
         <MapContainer center={center} zoom={13} style={{ height: '100%', width: '100%' }}>
@@ -274,48 +273,49 @@ export default function AddCustomerModal({
               >
                 <div className="mb-2 font-medium">Customer {idx + 1}</div>
 
-                                <SimplifiedPicker
-                                    label={`Customer ${idx + 1}`}
-                                    value={pickers[idx] ?? { locationSet: false }}
-                                    onChange={(v) => updatePicker(idx, v)}
-                                    depot={depot}
-                                />
-                            </div>
-                        ))}
-                    </div>
+                <SimplifiedPicker
+                  label={`Customer ${idx + 1}`}
+                  value={pickers[idx] ?? { locationSet: false }}
+                  onChange={(v) => updatePicker(idx, v)}
+                  depot={depot}
+                />
+              </div>
+            ))}
+          </div>
 
-                    <div className="sticky bottom-0 bg-white border-slate-200 px-4 py-3 flex justify-end gap-3 z-30">
-                        <button
-                            type="button"
-                            className="px-4 py-2 rounded bg-white border border-slate-200 text-sm"
-                            onClick={onClose}
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="button"
-                            className={`px-4 py-2 rounded text-white text-sm ${allValid ? 'bg-blue-600' : 'bg-slate-300 cursor-not-allowed'
-                                }`}
-                            onClick={() => {
-                                if (!allValid) return;
-                                const customers: AddCustomer[] = pickers.map((p, i) => ({
-                                    label: `Customer ${i + 1}`,
-                                    lat: p.lat ?? null,
-                                    lon: p.lon ?? null,
-                                    address: p.address,
-                                }));
-                                onClose();
-                                Promise.resolve(onConfirm(customers)).catch(() => {
-                                    // swallow errors to avoid unhandled rejections; parent handles errors
-                                });
-                            }}
-                            disabled={!allValid}
-                        >
-                            Confirm Add Customers
-                        </button>
-                    </div>
-                </div>
-            </div>
+          <div className="sticky bottom-0 bg-white border-slate-200 px-4 py-3 flex justify-end gap-3 z-30">
+            <button
+              type="button"
+              className="px-4 py-2 rounded bg-white border border-slate-200 text-sm"
+              onClick={onClose}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={`px-4 py-2 rounded text-white text-sm ${
+                allValid ? 'bg-blue-600' : 'bg-slate-300 cursor-not-allowed'
+              }`}
+              onClick={() => {
+                if (!allValid) return;
+                const customers: AddCustomer[] = pickers.map((p, i) => ({
+                  label: `Customer ${i + 1}`,
+                  lat: p.lat ?? null,
+                  lon: p.lon ?? null,
+                  address: p.address,
+                }));
+                onClose();
+                Promise.resolve(onConfirm(customers)).catch(() => {
+                  // swallow errors to avoid unhandled rejections; parent handles errors
+                });
+              }}
+              disabled={!allValid}
+            >
+              Confirm Add Customers
+            </button>
+          </div>
         </div>
-    );
+      </div>
+    </div>
+  );
 }
