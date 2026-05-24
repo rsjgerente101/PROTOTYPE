@@ -2737,6 +2737,12 @@ def enhance_assignment(
 
                     EPS = 1e-6
 
+                    # Acceptance rule:
+                    # - Keep only changes that improve workload/fairness.
+                    # - Reject changes that worsen distance or operational time beyond EPS.
+                    # - This prevents the enhanced algorithm from improving fairness at the
+                    #   expense of unreasonable route cost.
+
                     if fairness_gain <= 0:
                         continue
 
@@ -4057,9 +4063,26 @@ def preview_summary_from_assign_df(assign_df: pd.DataFrame) -> Dict[str, Any]:
         "depotLon": depot_lon,
     }
 
+# ============================================================
+# SECTION 12: API endpoints
+# Purpose:
+# - Exposes backend functions to the React frontend.
+# - Supports dataset validation, dataset metadata, baseline routing,
+#   add-customer rerouting, enhanced DEQ routing, and export/download.
+#
+# Defense note:
+# - The frontend does not directly run routing algorithms. It sends API
+#   requests to these endpoints, and the backend returns route/KPI payloads.
+# ============================================================
 
 @app.get("/api/health")
 def health() -> Dict[str, str]:
+    """
+    Simple backend health-check endpoint.
+
+    Purpose:
+    - Lets the frontend verify that the FastAPI server is reachable.
+    """
     return {"status": "ok"}
 
 
@@ -4069,6 +4092,19 @@ async def validate_dataset(
     mapping_json: str = Form(...),
     dataset_role: Optional[str] = Form(None),
 ) -> Dict[str, Any]:
+    """
+    Validates and reconstructs an uploaded dataset.
+
+    Purpose:
+    - Reads the uploaded CSV file.
+    - Applies frontend field mapping.
+    - Infers or accepts dataset role.
+    - Normalizes the file into the route-ready schema.
+    - Stores the cleaned dataset in memory for later routing.
+
+    Used by:
+    - Dataset Upload page.
+    """
     try:
         mapping = FieldMapping(**json.loads(mapping_json))
     except Exception as exc:
@@ -4130,6 +4166,13 @@ async def validate_dataset(
 
 @app.get("/api/datasets/{dataset_id}/meta")
 def dataset_meta(dataset_id: str) -> Dict[str, Any]:
+    """
+    Returns dataset metadata needed by the frontend.
+
+    Purpose:
+    - Provides dataset role, source label, depot information,
+      record count, customer count, and order count.
+    """
     payload = DATASETS.get(dataset_id)
     if not payload:
         return Response(
@@ -4167,6 +4210,13 @@ def dataset_meta(dataset_id: str) -> Dict[str, Any]:
 
 @app.get("/api/datasets/{dataset_id}/reconstructed")
 def download_reconstructed_dataset(dataset_id: str):
+    """
+    Downloads the reconstructed route-ready dataset as CSV.
+
+    Purpose:
+    - Allows users to inspect or save the normalized dataset produced
+      after validation.
+    """
     payload = DATASETS.get(dataset_id)
     if not payload:
         return Response(
@@ -4189,6 +4239,20 @@ def download_reconstructed_dataset(dataset_id: str):
 
 @app.post("/api/runs/baseline")
 def run_baseline(req: BaselineRequest) -> Dict[str, Any]:
+    """
+    Executes the baseline routing algorithm.
+
+    Purpose:
+    - Loads the validated dataset.
+    - Trains ETA prediction models.
+    - Builds routing rows and preview subsets.
+    - Creates the distance matrix.
+    - Runs GNN-based route construction.
+    - Returns routes, representative summaries, KPIs, and map data.
+
+    Defense note:
+    - This endpoint represents the baseline GNN + Dijkstra workflow.
+    """
     print("run_baseline started")
 
     payload = DATASETS.get(req.dataset_id)
@@ -4380,9 +4444,35 @@ def run_baseline(req: BaselineRequest) -> Dict[str, Any]:
     print("run_baseline finished")
     return preview_run
 
+# ============================================================
+# SECTION 11: Add-customer rerouting workflow
+# Purpose:
+# - Handles customers manually added from the frontend map.
+# - Assigns each new customer to the nearest suitable representative.
+# - Rebuilds the distance matrix and reroutes the updated baseline result.
+#
+# Defense note:
+# - Added customers are processed sequentially. After one customer is
+#   assigned, it becomes part of the route state before the next customer
+#   is assigned. This prevents all added customers from automatically
+#   going to only one representative.
+# ============================================================
 
 @app.post("/api/runs/baseline/add-customers")
 def add_customers_to_baseline(req: BaselineAddCustomersRequest) -> Dict[str, Any]:
+    """
+    Updates an existing baseline run with newly added customers.
+
+    Purpose:
+    - Retrieves the previous baseline assignment.
+    - Assigns each new customer to the nearest representative route.
+    - Appends the new customer rows into the routing dataset.
+    - Rebuilds the preview distance matrix.
+    - Reruns baseline routing and returns the updated run.
+
+    Used by:
+    - Add Customer modal in the React frontend.
+    """
     baseline_payload = RUNS.get(req.baseline_run_id)
     if not baseline_payload:
         raise HTTPException(status_code=404, detail="Baseline run not found.")
@@ -4499,12 +4589,17 @@ def assign_new_customer_to_nearest_rep(
     customer_lon: float,
 ) -> str:
     """
-    Assign a newly added customer to the representative whose existing route
-    has the nearest customer stop to the new customer.
+    Finds the representative route nearest to a newly added customer.
 
-    This is used for Add Customer so multiple new customers are not all pushed
-    to the same preselected rep unless that rep is truly nearest after each
-    sequential update.
+    Purpose:
+    - Compares the new customer's coordinate against each representative's
+      existing assigned stops.
+    - Selects the route with the nearest existing stop.
+    - Uses current workload count as a tie-breaker.
+
+    Defense note:
+    - This keeps added-customer assignment spatially reasonable instead
+      of assigning all new customers to a fixed representative.
     """
     work = ensure_preview_node_ids(assign_df.copy())
     if work.empty or "rep_id" not in work.columns:
@@ -4553,6 +4648,17 @@ def assign_new_customer_by_priority_queue(
     alpha: float = 0.60,
     beta: float = 0.40,
 ) -> str:
+    """
+    Alternative added-customer assignment helper based on DEQ priority.
+
+    Purpose:
+    - Ranks representatives using priority score.
+    - Can be used for a priority-aware assignment strategy.
+
+    Notes:
+    - The current baseline add-customer endpoint uses nearest-route
+      assignment instead, so this helper is optional/experimental.
+    """
     scored = compute_thesis_priority_scores(assign_df, rep_df, alpha=alpha, beta=beta)
 
     best_rep = None
@@ -4587,6 +4693,19 @@ def assign_new_customer_by_priority_queue(
 
 @app.post("/api/runs/enhanced")
 def run_enhanced(req: EnhancedRequest) -> Dict[str, Any]:
+    """
+    Executes the enhanced DEQ rebalancing algorithm.
+
+    Purpose:
+    - Starts from a previous baseline run.
+    - Applies DEQ-based rebalancing using priority score and workload.
+    - Recalculates routes and KPIs after accepted changes.
+    - Returns the enhanced route result for comparison.
+
+    Defense note:
+    - This endpoint represents the enhanced algorithm evaluated against
+      the baseline output.
+    """
     print("enhanced started")
     dataset_payload = DATASETS.get(req.dataset_id)
     baseline_payload = RUNS.get(req.baseline_run_id)
