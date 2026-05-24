@@ -89,25 +89,41 @@ function getNextCustomerNumber(
   return maxNumber + 1;
 }
 
-function findNearestRepresentative(
-  run: AlgorithmRun,
-  lat: number,
-  lon: number
-): string {
-  let bestRep = run.routes[0]?.representativeName ?? 'UNASSIGNED';
-  let bestDistance = Number.POSITIVE_INFINITY;
+function applyBackendAddedCustomerAssignments(
+  updatedRun: AlgorithmRun,
+  customers: AddedCustomer[]
+): AddedCustomer[] {
+  const repByCustomerNumber = new Map<number, string>();
+  const repByLabel = new Map<string, string>();
 
-  for (const route of run.routes) {
+  for (const route of updatedRun.routes) {
     for (const stop of route.stops) {
-      const d = haversineKm(lat, lon, stop.lat, stop.lon);
-      if (d < bestDistance) {
-        bestDistance = d;
-        bestRep = route.representativeName;
+      const orderId = (stop as { orderId?: string }).orderId;
+      if (typeof orderId === 'string' && orderId.startsWith('ADDED-ORDER-')) {
+        const customerNumber = extractCustomerNumber(stop.nodeName);
+        if (customerNumber != null) {
+          repByCustomerNumber.set(customerNumber, route.representativeName);
+        }
+        repByLabel.set(stop.nodeName, route.representativeName);
       }
     }
   }
 
-  return bestRep;
+  return customers.map((customer) => {
+    const assignedRep =
+      (customer.customerNumber != null
+        ? repByCustomerNumber.get(customer.customerNumber)
+        : undefined) ??
+      repByLabel.get(customer.label) ??
+      customer.assignedRep ??
+      '';
+
+    return {
+      ...customer,
+      assignedRep,
+      label: assignedRep ? `Customer ${customer.customerNumber} - ${assignedRep}` : customer.label,
+    };
+  });
 }
 
 const BaselineRun: React.FC = () => {
@@ -321,7 +337,7 @@ const BaselineRun: React.FC = () => {
                   <div className="text-xs text-gray-500">Depot</div>
                   <div className="text-sm font-medium text-gray-900">
                     {dataset?.datasetRole === 'primary_reconstruction'
-                      ? 'DEPOT-244'
+                      ? 'DEPOT-130'
                       : dataset?.datasetRole === 'comparative_template'
                         ? 'DEPOT-153'
                         : 'Automatic'}
@@ -396,19 +412,23 @@ const BaselineRun: React.FC = () => {
                         .map((c, idx) => {
                           const lat = Number(c.lat);
                           const lon = Number(c.lon);
-                          const assignedRep = findNearestRepresentative(currentRun, lat, lon);
                           const customerNumber = nextNumber++;
 
                           return {
                             id: `ADDED-${Date.now()}-${idx}`,
                             customerNumber,
-                            assignedRep,
-                            label: `Customer ${customerNumber} - ${assignedRep}`,
+                            // Let the backend assign this to the nearest representative route.
+                            assignedRep: '',
+                            label: `Customer ${customerNumber}`,
                             lat,
                             lon,
                             address: c.address,
                           };
                         });
+
+                      // Prepend new pending customers so the newest appear first in the preview.
+                      const pendingPreview = [...normalized, ...existingAdded];
+                      setAddedCustomers(pendingPreview);
 
                       try {
                         setBusy(true);
@@ -425,7 +445,10 @@ const BaselineRun: React.FC = () => {
                         };
 
                         localStorage.setItem(BASELINE_STORAGE_KEY, JSON.stringify(summary));
-                        setAddedCustomers([]);
+                        // Keep the old added customers and append the newly processed customers
+                        // with their backend-assigned representatives.
+                        const assignedPreview = applyBackendAddedCustomerAssignments(updatedRun, normalized);
+                        setAddedCustomers([...assignedPreview, ...existingAdded]);
                         setRun(updatedRun);
                         setSelectedRouteId(updatedRun.routes[0]?.id ?? '');
                         setMessage(`Added ${normalized.length} customer(s) and updated baseline routes.`);
@@ -438,6 +461,31 @@ const BaselineRun: React.FC = () => {
                       }
                     }}
                   />
+                  {addedCustomers.length > 0 && (
+                    <Card className="mt-3">
+                      <h3 className="text-sm font-semibold text-gray-900 mb-2">Added Customers Preview</h3>
+                      <div className="space-y-2 text-sm text-gray-700 max-h-96 overflow-auto pr-2">
+                        {addedCustomers.map((customer) => (
+                          <div key={customer.id} className="rounded border border-gray-200 p-2">
+                            <div className="font-medium">{customer.label}</div>
+                            <div>
+                              Rep:{' '}
+                              {customer.assignedRep ? (
+                                <span className="font-medium text-green-700">{customer.assignedRep}</span>
+                              ) : (
+                                <span className="text-gray-500">assigned after processing</span>
+                              )}
+                            </div>
+                            <div>Lat: {customer.lat.toFixed(6)}</div>
+                            <div>Lon: {customer.lon.toFixed(6)}</div>
+                            {customer.address && (
+                              <div className="text-xs text-gray-500 mt-1">{customer.address}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </Card>
+                  )}
                 </>
               )}
 
@@ -516,7 +564,7 @@ const BaselineRun: React.FC = () => {
                     </div>
                   </Card>
                 )}
-                
+
                 <div className="mb-6">
                   <Select
                     label="Select Route"

@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -10,8 +11,7 @@ from sklearn.preprocessing import MinMaxScaler
 
 
 def normalize_selected_features(
-    df: pd.DataFrame,
-    columns_to_normalize: List[str]
+    df: pd.DataFrame, columns_to_normalize: List[str]
 ) -> pd.DataFrame:
     out = df.copy()
     valid_cols = [c for c in columns_to_normalize if c in out.columns]
@@ -36,14 +36,14 @@ def save_feature_distribution_plots(
     df_after: pd.DataFrame,
     columns: List[str],
     output_dir: str = "artifacts/feature_distributions",
-    prefix: str = "dataset"
+    prefix: str = "dataset",
 ) -> Dict[str, Any]:
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     generated: Dict[str, Any] = {
         "before_histograms": {},
         "after_histograms": {},
-        "boxplots": {}
+        "boxplots": {},
     }
 
     for col in columns:

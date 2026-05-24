@@ -2,8 +2,7 @@ import React from 'react';
 import type { Representative } from '../types';
 import { RepresentativeCard } from './RepresentativeCard';
 import { Card } from './Card';
-import { Button } from './Button';
-import { ArrowLeftIcon, ArrowRightIcon } from 'lucide-react';
+import { ArrowRightIcon } from 'lucide-react';
 
 interface DequePanelProps {
   representatives: Representative[];
@@ -11,39 +10,11 @@ interface DequePanelProps {
 }
 
 export function DequePanel({ representatives, onUpdate }: DequePanelProps) {
-  const handlePushFront = (repId: string) => {
-    if (!onUpdate) return;
-
-    const updatedReps = [...representatives];
-    const repIndex = updatedReps.findIndex((r) => r.id === repId);
-
-    if (repIndex > 0) {
-      const [rep] = updatedReps.splice(repIndex, 1);
-      updatedReps.unshift(rep);
-      onUpdate(updatedReps);
-    }
-  };
-
-  const handlePushBack = (repId: string) => {
-    if (!onUpdate) return;
-
-    const updatedReps = [...representatives];
-    const repIndex = updatedReps.findIndex((r) => r.id === repId);
-
-    if (repIndex < updatedReps.length - 1) {
-      const [rep] = updatedReps.splice(repIndex, 1);
-      updatedReps.push(rep);
-      onUpdate(updatedReps);
-    }
-  };
-
   return (
     <Card>
       <div className="mb-4">
         <h3 className="text-sm font-semibold text-gray-900">Deque Panel</h3>
-        <p className="text-xs text-gray-600">
-          Manage workload distribution across representatives
-        </p>
+        <p className="text-xs text-gray-600">Manage workload distribution across representatives</p>
       </div>
 
       <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
@@ -58,11 +29,7 @@ export function DequePanel({ representatives, onUpdate }: DequePanelProps) {
         {representatives.map((rep, index) => (
           <div key={rep.id} className="relative">
             <div className="absolute -left-8 top-1/2 -translate-y-1/2 text-xs font-semibold text-gray-400">
-              {index === 0
-                ? 'F'
-                : index === representatives.length - 1
-                  ? 'R'
-                  : index + 1}
+              {index === 0 ? 'F' : index === representatives.length - 1 ? 'R' : index + 1}
             </div>
 
             <RepresentativeCard representative={rep} isDraggable={!!onUpdate} />

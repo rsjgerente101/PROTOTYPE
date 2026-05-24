@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Maximize2Icon, Minimize2Icon } from 'lucide-react';
 import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip, useMap } from 'react-leaflet';
-import { Route, Depot, AddedCustomer } from '../types';
+import type { Route, Depot, AddedCustomer } from '../types';
 import { Card } from './Card';
 import MapLegend from './MapLegend';
 
@@ -15,6 +15,11 @@ interface MapCanvasProps {
   onMapReady?: () => void;
   addedCustomers?: AddedCustomer[];
 }
+
+const formatSalesRepName = (repId?: string | null) => {
+  if (!repId) return '';
+  return repId.replace('-AGE-', '-');
+};
 
 function toNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -70,7 +75,15 @@ function buildOffsetPolylinePoints(
   return stopPoints;
 }
 
-function toLatLng(path?: Array<{ lat?: number | string; lon?: number | string; lng?: number | string; latitude?: number | string; longitude?: number | string }>): [number, number][] {
+function toLatLng(
+  path?: Array<{
+    lat?: number | string;
+    lon?: number | string;
+    lng?: number | string;
+    latitude?: number | string;
+    longitude?: number | string;
+  }>
+): [number, number][] {
   if (!path || path.length === 0) return [];
   return path
     .map((p) => normalizeLatLon(p))
@@ -101,15 +114,21 @@ function hasOutlierPathPoint(
 
   // City-scale plotting: if a path vertex is far from both endpoints,
   // it's likely an invalid/swapped coordinate and should be ignored.
-  return points.some(([lat, lon]) => (
-    Math.abs(lat - centerLat) > 1.5 || Math.abs(lon - centerLon) > 1.5
-  ));
+  return points.some(
+    ([lat, lon]) => Math.abs(lat - centerLat) > 1.5 || Math.abs(lon - centerLon) > 1.5
+  );
 }
 
 function buildAnchoredSegment(
   start: [number, number],
   end: [number, number],
-  path?: Array<{ lat?: number | string; lon?: number | string; lng?: number | string; latitude?: number | string; longitude?: number | string }>
+  path?: Array<{
+    lat?: number | string;
+    lon?: number | string;
+    lng?: number | string;
+    latitude?: number | string;
+    longitude?: number | string;
+  }>
 ): [number, number][] {
   const middle = toLatLng(path);
   if (middle.length === 0) return [start, end];
@@ -185,11 +204,10 @@ export function MapCanvas({
   onMapReady,
   addedCustomers = [],
 }: MapCanvasProps) {
-  const allStops = routes.flatMap((r) => r.stops ?? []);
-
   const allPoints: [number, number][] = useMemo(() => {
-    const stopPts = allStops
-      .map((s) => normalizeLatLon(s))
+    const stopPts = routes
+      .flatMap((route) => route.stops ?? [])
+      .map((stop) => normalizeLatLon(stop))
       .filter((coords): coords is [number, number] => coords !== null);
 
     const addedPts = addedCustomers
@@ -199,7 +217,7 @@ export function MapCanvas({
     const depotCoords = normalizeLatLon(depot);
 
     return depotCoords ? [depotCoords, ...stopPts, ...addedPts] : [...stopPts, ...addedPts];
-  }, [allStops, depot, addedCustomers]);
+  }, [routes, depot, addedCustomers]);
 
   const fallbackCenter: [number, number] =
     allPoints.length > 0 ? allPoints[0] : [14.5995, 120.9842];
@@ -210,9 +228,7 @@ export function MapCanvas({
     <Card className="h-full overflow-hidden" padding="none">
       <div className="relative w-full min-h-[820px] h-[60vh]">
         <MapContainer
-          {...(allPoints.length > 0
-            ? { bounds: allPoints }
-            : { center: fallbackCenter, zoom: 12 })}
+          {...(allPoints.length > 0 ? { bounds: allPoints } : { center: fallbackCenter, zoom: 12 })}
           className="w-full h-full rounded-lg"
           scrollWheelZoom
         >
@@ -229,8 +245,9 @@ export function MapCanvas({
           )}
 
           {routes.map((route, routeIndex) => {
-            const routeHasHighlightedStop =
-              (route.stops ?? []).some((stop) => highlightedNodes.includes(stop.nodeId));
+            const routeHasHighlightedStop = (route.stops ?? []).some((stop) =>
+              highlightedNodes.includes(stop.nodeId)
+            );
 
             const shouldEmphasize = !hasHighlightedStop || routeHasHighlightedStop;
 
@@ -254,9 +271,7 @@ export function MapCanvas({
                   };
                 }
 
-                const prev = idx === 0
-                  ? depotCoords
-                  : normalizeLatLon(routeStops[idx - 1]);
+                const prev = idx === 0 ? depotCoords : normalizeLatLon(routeStops[idx - 1]);
 
                 if (!prev) {
                   return {
@@ -272,9 +287,8 @@ export function MapCanvas({
               })
               .filter((seg) => seg.positions.length >= 2);
 
-            const lastStopCoords = routeStops.length > 0
-              ? normalizeLatLon(routeStops[routeStops.length - 1])
-              : null;
+            const lastStopCoords =
+              routeStops.length > 0 ? normalizeLatLon(routeStops[routeStops.length - 1]) : null;
 
             const returnSegment =
               lastStopCoords && depotCoords
@@ -335,7 +349,11 @@ export function MapCanvas({
                 weight: 2,
               }}
             >
-              {showLabels && <Tooltip permanent direction="top">Depot</Tooltip>}
+              {showLabels && (
+                <Tooltip permanent direction="top">
+                  Depot
+                </Tooltip>
+              )}
             </CircleMarker>
           )}
 
@@ -360,7 +378,7 @@ export function MapCanvas({
                 >
                   {showLabels && (
                     <Tooltip direction="top" offset={[0, -5]} permanent>
-                      {`${stop.nodeName} - ${route.representativeName}`}
+                      {`${stop.nodeName} - ${formatSalesRepName(route.representativeId)}`}
                     </Tooltip>
                   )}
 
@@ -400,7 +418,7 @@ export function MapCanvas({
           })}
         </MapContainer>
 
-        <div className="absolute bottom-20 right-4 z-[999]">
+        <div className="absolute bottom-55 right-4 z-[999]">
           <MapLegend />
         </div>
       </div>
