@@ -1591,14 +1591,38 @@ def static_assignment(df: pd.DataFrame, reps: int) -> pd.DataFrame:
     work["rep_id"] = assignments[: len(work)]
     return work.drop(columns=["angle"])
 
+def compute_normalized_delay_series(df: pd.DataFrame) -> pd.Series:
+    """
+    Computes normalized delivery delay ΔT.
+
+    Paper-aligned version:
+        ΔT = (Time_taken - mean(Time_taken)) / std(Time_taken)
+
+    If observed_eta_min is your Time_taken equivalent, use it.
+    """
+    if "observed_eta_min" not in df.columns:
+        return pd.Series(0.0, index=df.index)
+
+    values = pd.to_numeric(df["observed_eta_min"], errors="coerce")
+
+    mean_val = float(values.mean()) if values.notna().any() else 0.0
+    std_val = float(values.std(ddof=0)) if values.notna().any() else 0.0
+
+    if std_val <= 1e-9:
+        return pd.Series(0.0, index=df.index)
+
+    return ((values - mean_val) / std_val).fillna(0.0)
 
 def route_one_rep(
     group: pd.DataFrame,
     speed_kmph: float,
     service_min: float,
     distance_matrix: Dict[str, Dict[str, float]],
+    delay_lambda: float = 0.5,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, float]]:
-    rows = ensure_preview_node_ids(group).to_dict("records")
+    work = ensure_preview_node_ids(group.copy())
+    work["delay_score"] = compute_normalized_delay_series(work)
+    rows = work.to_dict("records")
     if not rows:
         return [], {
             "distance_km": 0.0,
@@ -1613,6 +1637,7 @@ def route_one_rep(
     cumulative_distance = 0.0
     cumulative_eta = 0.0
     stop_no = 1
+    paper_workload = 0.0
 
     while unvisited:
         best = min(
@@ -1626,6 +1651,13 @@ def route_one_rep(
         travel_min = (leg / speed_kmph) * 60.0 if speed_kmph > 0 else 0.0
         service_component = float(service_min)
         cumulative_eta += travel_min + service_component
+        delay_score = float(best.get("delay_score", 0.0))
+
+        paper_workload += (
+            travel_min
+            + service_component
+            + (float(delay_lambda) * delay_score)
+        )
 
         route.append(
             {
@@ -1640,6 +1672,14 @@ def route_one_rep(
                 "eta": round(cumulative_eta, 2),
                 "orderId": best["order_id"],
                 "predictedEtaMin": round(float(best.get("predicted_eta_min", 0.0)), 2),
+
+                "travelCostMin": round(travel_min, 2),
+                "serviceTimeMin": round(service_component, 2),
+                "delayScore": round(delay_score, 4),
+                "workloadContribution": round(
+                    travel_min + service_component + (float(delay_lambda) * delay_score),
+                    2,
+                ),
             }
         )
 
@@ -1655,6 +1695,7 @@ def route_one_rep(
         "distance_km": total_distance,
         "travel_minutes": travel_minutes,
         "operational_minutes": operational_minutes,
+        "paper_workload": paper_workload,
     }
 
 
@@ -1740,7 +1781,7 @@ def route_all(
 
     for idx, (rep_id, grp) in enumerate(work.groupby("rep_id"), start=1):
         ordered_stops, stats = route_one_rep(
-            grp, speed_kmph, service_min, distance_matrix
+            grp, speed_kmph, service_min, distance_matrix, delay_lambda=0.5,
         )
         color = palette[(idx - 1) % len(palette)]
 
@@ -1758,7 +1799,7 @@ def route_all(
             {
                 "rep_id": rep_id,
                 "customers": int(len(grp)),
-                "workload_min": float(stats["operational_minutes"]),
+                "workload_min": float(stats["paper_workload"]),
                 "distance_km": float(stats["distance_km"]),
                 "travel_minutes": float(stats["travel_minutes"]),
                 "operational_minutes": float(stats["operational_minutes"]),

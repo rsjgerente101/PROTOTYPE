@@ -79,21 +79,12 @@ const EnhancedRun: React.FC = () => {
   }, [dataset]);
 
   const routeOptions = useMemo(() => {
-<<<<<<< HEAD
-  if (!enhancedRun) return [];
-  return enhancedRun.routes.map((route) => ({
-    value: route.id,
-    label: `${formatSalesRepName(route.representativeName)} (${route.stops.length} stops)`,
-  }));
-}, [enhancedRun]);
-=======
     if (!enhancedRun) return [];
     return enhancedRun.routes.map((route) => ({
       value: route.id,
       label: `${formatSalesRepName(route.representativeName)} (${route.stops.length} stops)`,
     }));
   }, [enhancedRun]);
->>>>>>> main
 
   const selectedRoutesForDisplay: Route[] = useMemo(() => {
     if (!enhancedRun) return [];

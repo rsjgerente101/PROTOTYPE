@@ -168,10 +168,6 @@ const CompareExport: React.FC = () => {
       ])
     ).sort();
 
-<<<<<<< HEAD
-
-=======
->>>>>>> main
     return allRepIds.map((repId) => {
       const baselineRep = baselineMap.get(repId);
       const enhancedRep = enhancedMap.get(repId);
@@ -249,14 +245,6 @@ const CompareExport: React.FC = () => {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-4 py-3 text-left font-medium text-gray-700">Sales Rep</th>
-<<<<<<< HEAD
-                      <th className="px-4 py-3 text-right font-medium text-gray-700">Baseline Customers</th>
-                      <th className="px-4 py-3 text-right font-medium text-gray-700">Enhanced Customers</th>
-                      <th className="px-4 py-3 text-right font-medium text-gray-700">Baseline Workload</th>
-                      <th className="px-4 py-3 text-right font-medium text-gray-700">Enhanced Workload</th>
-                      <th className="px-4 py-3 text-right font-medium text-gray-700">Baseline Distance</th>
-                      <th className="px-4 py-3 text-right font-medium text-gray-700">Enhanced Distance</th>
-=======
                       <th className="px-4 py-3 text-right font-medium text-gray-700">
                         Baseline Customers
                       </th>
@@ -275,21 +263,11 @@ const CompareExport: React.FC = () => {
                       <th className="px-4 py-3 text-right font-medium text-gray-700">
                         Enhanced Distance
                       </th>
->>>>>>> main
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
                     {repComparisonRows.map((row) => (
                       <tr key={row.repId} className="hover:bg-gray-50">
-<<<<<<< HEAD
-                        <td className="px-4 py-3 text-gray-900 font-medium">{formatSalesRepName(row.repId)}</td>
-                        <td className="px-4 py-3 text-right text-gray-700">{row.baselineCustomers}</td>
-                        <td className="px-4 py-3 text-right text-gray-700">{row.enhancedCustomers}</td>
-                        <td className="px-4 py-3 text-right text-gray-700">{row.baselineWorkload.toFixed(2)}</td>
-                        <td className="px-4 py-3 text-right text-gray-700">{row.enhancedWorkload.toFixed(2)}</td>
-                        <td className="px-4 py-3 text-right text-gray-700">{row.baselineDistance.toFixed(2)}km</td>
-                        <td className="px-4 py-3 text-right text-gray-700">{row.enhancedDistance.toFixed(2)}km</td>
-=======
                         <td className="px-4 py-3 text-gray-900 font-medium">
                           {formatSalesRepName(row.repId)}
                         </td>
@@ -311,7 +289,6 @@ const CompareExport: React.FC = () => {
                         <td className="px-4 py-3 text-right text-gray-700">
                           {row.enhancedDistance.toFixed(2)}km
                         </td>
->>>>>>> main
                       </tr>
                     ))}
                   </tbody>

@@ -35,15 +35,8 @@ export function RepresentativeCard({
           <div>
             <p className="text-sm font-semibold text-gray-900">
               {formatSalesRepName(representative.name)}
-<<<<<<< HEAD
-            </p>
-            <p className="text-xs text-gray-500">
-              {formatSalesRepName(representative.id)}
-            </p>
-=======
             </p>
             <p className="text-xs text-gray-500">{formatSalesRepName(representative.id)}</p>
->>>>>>> main
           </div>
         </div>
       </div>
