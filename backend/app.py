@@ -23,6 +23,18 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
+# ============================================================
+# SECTION 1: FastAPI setup and runtime storage
+# Purpose:
+# - Initializes the backend API used by the React frontend.
+# - Enables CORS so the frontend can call the backend locally.
+# - Stores uploaded datasets and generated algorithm runs in memory.
+#
+# Note:
+# - DATASETS and RUNS are runtime dictionaries used for prototype/demo
+#   execution. They are not permanent database storage.
+# ============================================================
+
 app = FastAPI(title="Delivery Prototype Backend", version="1.1.0")
 app.add_middleware(
     CORSMiddleware,
@@ -43,6 +55,18 @@ OSM_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 # OSMnx HTTP + file caching
 ox.settings.use_cache = True
 ox.settings.log_console = False
+
+# ============================================================
+# SECTION 2: Experiment profiles and fixed demo configuration
+# Purpose:
+# - Defines default parameter sets for generic, Amazon, and Zomato runs.
+# - Controls preview radius, max preview stops, OSM threshold, and enhanced
+#   optimization weights.
+# - Keeps demo execution consistent across baseline and enhanced experiments.
+#
+# Note:
+# - These profiles help ensure repeatable testing for thesis demonstrations.
+# ============================================================
 
 RUN_PROFILES: Dict[str, Dict[str, Any]] = {
     "default_balanced": {
