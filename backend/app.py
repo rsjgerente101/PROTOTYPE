@@ -703,6 +703,17 @@ def attach_route_display_geometry(
 
     return routes
 
+# ============================================================
+# SECTION 5: Preview, depot selection, and routing-node helpers
+# Purpose:
+# - Prepares the subset of data used for demo-scale routing.
+# - Selects fixed or fallback depots for repeatable experiments.
+# - Ensures each customer/order has a usable routing node ID.
+#
+# note:
+# - The prototype uses preview-sized routing runs to keep computation
+#   practical during demonstration while preserving the routing logic.
+# ============================================================
 
 def preview_matrix_stats(assign_df: pd.DataFrame) -> Dict[str, Any]:
     work = ensure_preview_node_ids(assign_df)
@@ -725,6 +736,20 @@ def filter_df_to_demo_depot(
     min_nodes: int = MIN_FIXED_DEMO_NODES,
     min_agents: int = MIN_FIXED_DEMO_AGENTS,
 ) -> pd.DataFrame:
+    """
+    Filters the dataset to a configured demo depot when available.
+
+    Purpose:
+    - Uses fixed demo depots for Amazon, Zomato, or generic uploads.
+    - Falls back to the strongest available depot if the configured depot
+      is missing or too weak.
+
+    Used by:
+    - Baseline run preparation.
+
+    note:
+    - Fixed depots make baseline/enhanced comparisons repeatable.
+    """
     demo_depot_id = DEMO_PREVIEW_DEPOTS.get(dataset_role)
 
     if not demo_depot_id or "depot_id" not in df.columns:
@@ -775,6 +800,16 @@ def filter_df_to_demo_depot(
 
 
 def summarize_demo_depot_strength(df: pd.DataFrame) -> Dict[str, Any]:
+    """
+    Summarizes whether a depot has enough usable routing data.
+
+    Purpose:
+    - Counts rows, unique customer nodes, agents, and orders.
+    - Helps determine if a depot is strong enough for demo routing.
+
+    Notes:
+    - This avoids selecting depots with too few customers or representatives.
+    """
     work = df.copy()
     if work.empty:
         return {
@@ -819,6 +854,14 @@ def choose_best_demo_depot_id(
     min_nodes: int = MIN_FIXED_DEMO_NODES,
     min_agents: int = MIN_FIXED_DEMO_AGENTS,
 ) -> Optional[str]:
+    """
+    Selects the strongest available depot when the configured demo depot
+    is unavailable or insufficient.
+
+    Purpose:
+    - Scores depots based on agent count, customer nodes, and orders.
+    - Returns the best candidate depot ID for preview routing.
+    """
     if routing_df.empty or "depot_id" not in routing_df.columns:
         return None
 
@@ -853,6 +896,18 @@ def choose_best_demo_depot_id(
 
 
 def ensure_preview_node_ids(assign_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Ensures every row has a node_id used by the distance matrix.
+
+    Purpose:
+    - Uses customer_node_id when available.
+    - Creates fallback customer IDs when node_id is missing.
+
+    Used by:
+    - Distance matrix generation.
+    - Route construction.
+    - Map geometry generation.
+    """
     work = assign_df.copy().reset_index(drop=True)
 
     if "customer_node_id" in work.columns:
@@ -1067,8 +1122,29 @@ def build_amazon_order_routing_rows(df: pd.DataFrame) -> pd.DataFrame:
 
     return out.reset_index(drop=True)
 
+# ============================================================
+# SECTION 6: Dataset upload, normalization, and reconstruction
+# Purpose:
+# - Reads uploaded CSV files.
+# - Infers whether the dataset is Amazon, Zomato, or generic.
+# - Converts raw or reconstructed datasets into a common route-ready schema.
+#
+# Defense note:
+# - This section standardizes different public datasets so the same
+#   baseline and enhanced routing algorithms can process them.
+# ============================================================
 
 def read_csv_upload(file: UploadFile) -> pd.DataFrame:
+    """
+    Reads the uploaded CSV file into a pandas DataFrame.
+
+    Purpose:
+    - Validates that the file is not empty.
+    - Converts uploaded bytes into tabular data for processing.
+
+    Used by:
+    - Dataset validation endpoint.
+    """
     content = file.file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
@@ -1081,6 +1157,13 @@ def read_csv_upload(file: UploadFile) -> pd.DataFrame:
 
 
 def infer_dataset_role(filename: str) -> str:
+    """
+    Infers dataset role from the uploaded filename.
+
+    Purpose:
+    - Classifies files as Amazon, Zomato, or generic uploads.
+    - Allows the backend to apply dataset-specific reconstruction logic.
+    """
     name = (filename or "").lower()
     if "amazon" in name:
         return "primary_reconstruction"
@@ -1103,8 +1186,11 @@ def autofill_mapping_from_known_columns(
     source_role: str,
 ) -> FieldMapping:
     """
-    Backend safety net so raw uploads normalize consistently even if the frontend
-    did not send some optional mapped fields.
+    Fills optional mapping fields when known dataset columns are detected.
+
+    Purpose:
+    - Reduces manual mapping work for common Amazon/Zomato columns.
+    - Helps normalize raw uploads even when the frontend mapping is incomplete.
     """
     data = mapping.model_dump()
 
@@ -1129,9 +1215,18 @@ def _base_reconstruct_from_mapping(
     df: pd.DataFrame, mapping: FieldMapping
 ) -> pd.DataFrame:
     """
-    Common reconstruction foundation for raw datasets after field mapping.
-    Produces a cleaned order-level dataframe that can then be specialized
-    for Amazon or Zomato.
+    Builds the common cleaned order-level dataset from mapped CSV columns.
+
+    Purpose:
+    - Converts mapped latitude/longitude fields to numeric values.
+    - Creates order_id, customer_id, order_date, ETA, rating, and area fields.
+    - Removes rows with invalid or missing coordinates.
+    - Creates stable depot IDs when no depot_id column is provided.
+
+    Used by:
+    - Amazon reconstruction.
+    - Zomato reconstruction.
+    - Generic uploaded dataset reconstruction.
     """
     out = pd.DataFrame()
 
@@ -1214,8 +1309,17 @@ def reconstruct_raw_amazon_dataset(
     df: pd.DataFrame, mapping: FieldMapping
 ) -> pd.DataFrame:
     """
-    Reconstruct raw Amazon upload into the cleaned route-eligible schema
-    aligned with the known-good reconstructed Amazon dataset design.
+    Reconstructs a raw Amazon delivery dataset into the route-ready schema.
+
+    Purpose:
+    - Creates synthetic agent IDs from depot and Agent_Age.
+    - Builds customer_node_id from customer coordinates.
+    - Computes direct depot-to-customer distance.
+    - Marks extreme distance outliers as not routing-eligible.
+
+    Defense note:
+    - Amazon does not always provide a direct agent ID, so the prototype
+      synthesizes one for representative-level routing and comparison.
     """
     out = _base_reconstruct_from_mapping(df, mapping)
 
@@ -1318,8 +1422,15 @@ def reconstruct_raw_zomato_dataset(
     df: pd.DataFrame, mapping: FieldMapping
 ) -> pd.DataFrame:
     """
-    Reconstruct raw Zomato upload into the cleaned route-eligible schema
-    aligned with the same node-aware routing structure.
+    Reconstructs a raw Zomato delivery dataset into the route-ready schema.
+
+    Purpose:
+    - Uses Delivery_person_ID as the real agent identifier when available.
+    - Builds customer_node_id from destination coordinates.
+    - Computes distance, demand count, rating, ETA, and eligibility fields.
+
+    Defense note:
+    - Unlike Amazon, Zomato can provide a direct delivery person/agent ID.
     """
     out = _base_reconstruct_from_mapping(df, mapping)
 
@@ -1421,8 +1532,12 @@ def reconstruct_generic_uploaded_dataset(
     df: pd.DataFrame, mapping: FieldMapping
 ) -> pd.DataFrame:
     """
-    Generic fallback for other uploaded delivery datasets.
-    Keeps behavior simple but still produces the cleaned route-eligible schema.
+    Reconstructs any other uploaded dataset using the generic route schema.
+
+    Purpose:
+    - Provides fallback support when the file is not recognized as Amazon
+      or Zomato.
+    - Keeps the upload workflow flexible for other delivery-style datasets.
     """
     out = _base_reconstruct_from_mapping(df, mapping)
 
@@ -1501,6 +1616,17 @@ def reconstruct_generic_uploaded_dataset(
 def normalize_dataset(
     df: pd.DataFrame, mapping: FieldMapping, source_role: str
 ) -> pd.DataFrame:
+    """
+    Converts uploaded data into the standardized backend routing schema.
+
+    Purpose:
+    - Accepts already reconstructed datasets without rebuilding them.
+    - Applies dataset-specific reconstruction for raw Amazon and Zomato files.
+    - Falls back to generic reconstruction for other uploads.
+
+    Used by:
+    - Dataset validation endpoint before baseline/enhanced runs.
+    """
     needed = [
         mapping.depot_lat,
         mapping.depot_lon,
@@ -1593,6 +1719,14 @@ def normalize_dataset(
 
 
 def validation_summary(df: pd.DataFrame) -> Dict[str, Any]:
+    """
+    Builds the dataset validation summary returned to the frontend.
+
+    Purpose:
+    - Counts records, depots, customers, orders, duplicate orders,
+      near-duplicate coordinates, and average rating.
+    - Confirms the uploaded dataset is usable for routing.
+    """
     if df.empty:
         raise HTTPException(
             status_code=400, detail="No valid rows remain after coordinate filtering."
