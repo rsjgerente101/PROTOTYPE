@@ -1921,8 +1921,6 @@ def static_assignment(df: pd.DataFrame, reps: int) -> pd.DataFrame:
     work["rep_id"] = assignments[: len(work)]
     return work.drop(columns=["angle"])
 
-<<<<<<< HEAD
-=======
 def compute_normalized_delay_series(df: pd.DataFrame) -> pd.Series:
     """
     Computes normalized delay values used in workload calculation.
@@ -1946,7 +1944,6 @@ def compute_normalized_delay_series(df: pd.DataFrame) -> pd.Series:
         return pd.Series(0.0, index=df.index)
 
     return ((values - mean_val) / std_val).fillna(0.0)
->>>>>>> 714eaa5 (Add routing and metrics notes)
 
 def route_one_rep(
     group: pd.DataFrame,
@@ -1954,9 +1951,7 @@ def route_one_rep(
     service_min: float,
     distance_matrix: Dict[str, Dict[str, float]],
 ) -> Tuple[List[Dict[str, Any]], Dict[str, float]]:
-<<<<<<< HEAD
     rows = ensure_preview_node_ids(group).to_dict("records")
-=======
     """
     Builds one representative route using Greedy Nearest Neighbor.
 
@@ -1971,7 +1966,6 @@ def route_one_rep(
     work = ensure_preview_node_ids(group.copy())
     work["delay_score"] = compute_normalized_delay_series(work)
     rows = work.to_dict("records")
->>>>>>> 714eaa5 (Add routing and metrics notes)
     if not rows:
         return [], {
             "distance_km": 0.0,
