@@ -132,6 +132,7 @@ AMAZON_MIN_PREVIEW_STOPS = 60
 #   backend executes routing, reconstruction, or optimization logic.
 # ============================================================
 
+
 class FieldMapping(BaseModel):
     """
     Stores the frontend-to-backend column mapping for uploaded CSV files.
@@ -144,6 +145,7 @@ class FieldMapping(BaseModel):
     - Required fields identify depot/customer coordinates.
     - Optional fields support order date, ETA, rating, area, and agent ID.
     """
+
     depot_id: Optional[str] = None
     depot_lat: str
     depot_lon: str
@@ -169,6 +171,7 @@ class BaselineRequest(BaseModel):
     - Controls number of representatives, travel speed, service time,
       random seed, and selected run profile.
     """
+
     dataset_id: str
     num_representatives: int = 4
     avg_speed_kmph: float = 40.0
@@ -188,6 +191,7 @@ class EnhancedRequest(BaseModel):
     - alpha_weight and beta_weight control the priority score formula.
     - max_iterations and border_fraction control the rebalancing search.
     """
+
     dataset_id: str
     baseline_run_id: str
     alpha_weight: Optional[float] = None
@@ -208,6 +212,7 @@ class AddedCustomerPayload(BaseModel):
     - The backend assigns the added customer to the nearest suitable
       representative and then reroutes the baseline result.
     """
+
     label: str
     lat: float
     lon: float
@@ -227,8 +232,10 @@ class BaselineAddCustomersRequest(BaseModel):
     - baseline_run_id tells the backend which previous baseline result
       should be updated.
     """
+
     baseline_run_id: str
     customers: List[AddedCustomerPayload]
+
 
 # ============================================================
 # SECTION 4: Distance, OSM, and map geometry helpers
@@ -244,6 +251,7 @@ class BaselineAddCustomersRequest(BaseModel):
 #   matrix. OSM shortest paths are preferred for route realism, while
 #   the road-adjusted fallback keeps the prototype fast and reliable.
 # ============================================================
+
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """
@@ -703,6 +711,7 @@ def attach_route_display_geometry(
 
     return routes
 
+
 # ============================================================
 # SECTION 5: Preview, depot selection, and routing-node helpers
 # Purpose:
@@ -714,6 +723,7 @@ def attach_route_display_geometry(
 # - The prototype uses preview-sized routing runs to keep computation
 #   practical during demonstration while preserving the routing logic.
 # ============================================================
+
 
 def preview_matrix_stats(assign_df: pd.DataFrame) -> Dict[str, Any]:
     work = ensure_preview_node_ids(assign_df)
@@ -1029,6 +1039,14 @@ def build_routing_nodes(df: pd.DataFrame) -> pd.DataFrame:
     return agg.reset_index(drop=True)
 
 
+# ============================================================
+# ====================== AMAZON SECTION ======================
+# Amazon-specific routing and reconstruction helpers follow.
+# Keep these grouped so reviewers and maintainers can quickly find
+# Amazon dataset handling and preview logic.
+# ============================================================
+
+
 def build_amazon_order_routing_rows(df: pd.DataFrame) -> pd.DataFrame:
     """
     Amazon preview routing should preserve order-level rows instead of collapsing
@@ -1122,6 +1140,7 @@ def build_amazon_order_routing_rows(df: pd.DataFrame) -> pd.DataFrame:
 
     return out.reset_index(drop=True)
 
+
 # ============================================================
 # SECTION 6: Dataset upload, normalization, and reconstruction
 # Purpose:
@@ -1133,6 +1152,7 @@ def build_amazon_order_routing_rows(df: pd.DataFrame) -> pd.DataFrame:
 # - This section standardizes different public datasets so the same
 #   baseline and enhanced routing algorithms can process them.
 # ============================================================
+
 
 def read_csv_upload(file: UploadFile) -> pd.DataFrame:
     """
@@ -1305,6 +1325,12 @@ def _base_reconstruct_from_mapping(
     return out
 
 
+# ============================================================
+# ====================== AMAZON SECTION ======================
+# Raw Amazon dataset reconstruction and normalization.
+# ============================================================
+
+
 def reconstruct_raw_amazon_dataset(
     df: pd.DataFrame, mapping: FieldMapping
 ) -> pd.DataFrame:
@@ -1416,6 +1442,12 @@ def reconstruct_raw_amazon_dataset(
 
     final.reset_index(drop=True, inplace=True)
     return final
+
+
+# ============================================================
+# ====================== ZOMATO SECTION ======================
+# Raw Zomato dataset reconstruction and normalization.
+# ============================================================
 
 
 def reconstruct_raw_zomato_dataset(
@@ -1758,6 +1790,7 @@ def validation_summary(df: pd.DataFrame) -> Dict[str, Any]:
         },
     }
 
+
 # ============================================================
 # SECTION 7: ETA feature preparation and model training
 # Purpose:
@@ -1769,6 +1802,7 @@ def validation_summary(df: pd.DataFrame) -> Dict[str, Any]:
 # - ETA prediction supports the routing prototype by estimating travel
 #   behavior from distance, rating, and area/cluster information.
 # ============================================================
+
 
 def build_eta_features(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -1878,6 +1912,7 @@ def train_eta_models(df: pd.DataFrame, seed: int) -> Tuple[np.ndarray, Dict[str,
     }
     return pred_enhanced, metrics
 
+
 # ============================================================
 # SECTION 8: Baseline routing and workload construction
 # Purpose:
@@ -1889,6 +1924,7 @@ def train_eta_models(df: pd.DataFrame, seed: int) -> Tuple[np.ndarray, Dict[str,
 # - The baseline routing process follows a distance-driven GNN approach
 #   using the distance matrix built from OSM/Dijkstra or fallback costs.
 # ============================================================
+
 
 def static_assignment(df: pd.DataFrame, reps: int) -> pd.DataFrame:
     """
@@ -1921,6 +1957,7 @@ def static_assignment(df: pd.DataFrame, reps: int) -> pd.DataFrame:
     work["rep_id"] = assignments[: len(work)]
     return work.drop(columns=["angle"])
 
+
 def compute_normalized_delay_series(df: pd.DataFrame) -> pd.Series:
     """
     Computes normalized delay values used in workload calculation.
@@ -1944,6 +1981,7 @@ def compute_normalized_delay_series(df: pd.DataFrame) -> pd.Series:
         return pd.Series(0.0, index=df.index)
 
     return ((values - mean_val) / std_val).fillna(0.0)
+
 
 def route_one_rep(
     group: pd.DataFrame,
@@ -2168,6 +2206,7 @@ def route_all(
     }
     return routes, rep_df, total
 
+
 # ============================================================
 # SECTION 9: Priority scoring, fairness, workload, and KPI metrics
 # Purpose:
@@ -2179,6 +2218,7 @@ def route_all(
 # - These metrics connect the implementation to the thesis evaluation:
 #   distance, travel time, operational time, WBI, JFI, and coverage ratio.
 # ============================================================
+
 
 def compute_thesis_priority_scores(
     assign_df: pd.DataFrame,
@@ -2409,6 +2449,7 @@ def make_algorithm_run(
         "notes": notes or [],
     }
 
+
 # ============================================================
 # SECTION 10: Enhanced DEQ rebalancing logic
 # Purpose:
@@ -2424,6 +2465,7 @@ def make_algorithm_run(
 #   using GNN, while the enhanced model attempts to rebalance assignments
 #   without worsening operational performance.
 # ============================================================
+
 
 def border_candidates(
     assign_df: pd.DataFrame, heavy_rep: str, light_rep: str, fraction: float
@@ -3779,6 +3821,12 @@ def build_local_preview_subset(
     return preview_assigned
 
 
+# ============================================================
+# ====================== AMAZON SECTION ======================
+# Amazon-specific preview subset builder and helpers.
+# ============================================================
+
+
 def build_local_preview_subset_amazon(
     df: pd.DataFrame,
     num_representatives: int,
@@ -4046,6 +4094,7 @@ def preview_summary_from_assign_df(assign_df: pd.DataFrame) -> Dict[str, Any]:
         "depotLon": depot_lon,
     }
 
+
 # ============================================================
 # SECTION 12: API endpoints
 # Purpose:
@@ -4057,6 +4106,7 @@ def preview_summary_from_assign_df(assign_df: pd.DataFrame) -> Dict[str, Any]:
 # - The frontend does not directly run routing algorithms. It sends API
 #   requests to these endpoints, and the backend returns route/KPI payloads.
 # ============================================================
+
 
 @app.get("/api/health")
 def health() -> Dict[str, str]:
@@ -4427,6 +4477,7 @@ def run_baseline(req: BaselineRequest) -> Dict[str, Any]:
     print("run_baseline finished")
     return preview_run
 
+
 # ============================================================
 # SECTION 11: Add-customer rerouting workflow
 # Purpose:
@@ -4440,6 +4491,7 @@ def run_baseline(req: BaselineRequest) -> Dict[str, Any]:
 #   is assigned. This prevents all added customers from automatically
 #   going to only one representative.
 # ============================================================
+
 
 @app.post("/api/runs/baseline/add-customers")
 def add_customers_to_baseline(req: BaselineAddCustomersRequest) -> Dict[str, Any]:
