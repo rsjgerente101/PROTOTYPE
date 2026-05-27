@@ -1,8 +1,8 @@
 services:
   - type: web
     name: thesis-backend
-    env: docker
-    dockerfilePath: backend/Dockerfile
+    env: python
+    buildCommand: bash backend/render-build.sh
     branch: main
     plan: starter
     regions:
