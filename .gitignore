@@ -1,0 +1,16 @@
+backend/cache/
+backend/cache/osm/
+*.graphml
+
+# Generated artifacts
+backend/artifacts/
+
+node_modules/
+.vite/
+dist/
+
+__pycache__/
+*.pyc
+
+.env
+.env.local

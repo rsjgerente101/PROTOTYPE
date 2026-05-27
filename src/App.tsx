@@ -5,7 +5,7 @@ import BaselineRun from './pages/BaselineRun';
 import EnhancedRun from './pages/EnhancedRun';
 import CompareExport from './pages/CompareExport';
 
-export default function App() { 
+export default function App() {
   return (
     <BrowserRouter>
       <Routes>

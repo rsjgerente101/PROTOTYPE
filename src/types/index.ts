@@ -18,6 +18,16 @@ export interface Customer {
   orderId?: string;
 }
 
+export interface AddedCustomer {
+  id: string;
+  label: string;
+  lat: number;
+  lon: number;
+  address?: string;
+  assignedRep?: string;
+  customerNumber?: number;
+}
+
 export interface RouteStop {
   stopNumber: number;
   nodeId: string;
@@ -29,6 +39,9 @@ export interface RouteStop {
   lon: number;
   orderId?: string;
   predictedEtaMin?: number;
+
+  // new: visual-only geometry from previous point to this stop
+  legPath?: Coordinate[];
 }
 
 export interface Route {
@@ -37,10 +50,15 @@ export interface Route {
   representativeName: string;
   stops: RouteStop[];
   color: string;
+
+  // new: visual-only geometry from last stop back to depot
+  returnPath?: Coordinate[];
 }
 
 export interface KPIMetrics {
   totalDistance: number;
+  // legacy / UI fields used across pages
+  totalTime: number;
   travelTime: number;
   operationalTime: number;
   computeTime: number;
@@ -48,6 +66,17 @@ export interface KPIMetrics {
   workloadBalance: number;
   coverage: number;
   scalability: number;
+
+  // additional fields referenced by pages_v1 mock data and components
+  numberOfStops: number;
+  delayScore: number;
+  ratingPenalty: number;
+  coverageRatio: number;
+  workloadBalanceIndex: number;
+  jainsFairnessIndex: number;
+
+  avgTotalDistance: number;
+  avgTravelTime: number;
 }
 
 export interface Representative {
@@ -59,6 +88,9 @@ export interface Representative {
   queuePosition: number;
   assignedCustomers: number;
   color?: string;
+
+  totalDistance?: number;
+  totalTime?: number;
 }
 
 export interface Dataset {
@@ -161,16 +193,15 @@ export interface BaselineRunRequest {
   avgSpeedKmph: number;
   serviceMinutesPerStop: number;
   seed: number;
-  runProfile?: 'default_balanced' | 'amazon_expanded_search';
+  runProfile?: 'default_balanced' | 'amazon_expanded_search' | 'zomato_expanded_search';
 }
 
 export interface EnhancedRunRequest {
   datasetId: string;
   baselineRunId: string;
-  fairnessWeight?: number;
-  distanceWeight?: number;
-  timeWeight?: number;
+  alphaWeight?: number;
+  betaWeight?: number;
   maxIterations?: number;
   borderFraction?: number;
-  runProfile?: 'default_balanced' | 'amazon_expanded_search';
+  runProfile?: 'default_balanced' | 'amazon_expanded_search' | 'zomato_expanded_search';
 }

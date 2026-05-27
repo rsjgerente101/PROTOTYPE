@@ -1,0 +1,20 @@
+/* Override Leaflet image-based icons and use inline SVGs instead */
+.leaflet-control-layers-toggle {
+  background-image: none !important;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.leaflet-control-layers-toggle::before {
+  content: '';
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%23000' d='M3 13h18v2H3zm3-6h12v2H6zm-3 12h18v2H3z'/></svg>");
+  background-size: contain;
+  background-repeat: no-repeat;
+}
+.leaflet-default-icon-path { background-image: none !important; }
+.custom-leaflet-pin svg { display: block; }

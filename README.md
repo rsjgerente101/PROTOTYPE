@@ -2,7 +2,7 @@ How to Run
 
 1. Open terminal and type "cd backend"
 2. Enter "uvicorn app:app --reload --port 8000"
-3. On a seperate terminal, enter "npm install" and "npm run dev"
+3. On a separate terminal, enter "npm install" and "npm run dev"
 4. You can now open the link. 
 
 
@@ -10,5 +10,5 @@ How to Run v1
 1. Open terminal and type "cd backend"
 2. Run "python -m pip install -r requirements.txt"
 2. Enter "python -m uvicorn app:app --reload --port 8000"
-3. On a seperate terminal, enter "npm install" and "npm run dev"
+3. On a separate terminal, enter "npm install" and "npm run dev"
 
