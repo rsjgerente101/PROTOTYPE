@@ -4,14 +4,21 @@ import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-lea
 import L from 'leaflet';
 import type { Depot } from '../types';
 
-// Minimal marker icon fix for Leaflet bundling
-const DefaultIcon = L.icon({
-  iconUrl: 'https://unpkg.com/leaflet@1.9.3/dist/images/marker-icon.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.3/dist/images/marker-shadow.png',
+// Use an inline SVG DivIcon so we don't depend on image files
+const pinSvg = `
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="28" height="40" aria-hidden="true">
+    <path fill="%23ef4444" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+    <circle fill="%23ffffff" cx="12" cy="9" r="2.5"/>
+  </svg>
+`;
+
+const DefaultIcon = L.divIcon({
+  className: 'custom-leaflet-pin',
+  html: pinSvg,
+  iconSize: [28, 40],
+  iconAnchor: [14, 40],
 });
+
 L.Marker.prototype.options.icon = DefaultIcon;
 
 type PickLocation = {
@@ -100,7 +107,7 @@ function SimplifiedPicker({
       const t = setTimeout(() => {
         try {
           map.invalidateSize();
-        } catch {}
+        } catch { }
       }, 50);
       return () => clearTimeout(t);
     }, [map, val.lat, val.lon]);
@@ -293,9 +300,8 @@ export default function AddCustomerModal({
             </button>
             <button
               type="button"
-              className={`px-4 py-2 rounded text-white text-sm ${
-                allValid ? 'bg-blue-600' : 'bg-slate-300 cursor-not-allowed'
-              }`}
+              className={`px-4 py-2 rounded text-white text-sm ${allValid ? 'bg-blue-600' : 'bg-slate-300 cursor-not-allowed'
+                }`}
               onClick={() => {
                 if (!allValid) return;
                 const customers: AddCustomer[] = pickers.map((p, i) => ({

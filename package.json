@@ -61,13 +61,11 @@
     "autoprefixer": "^10.4.27",
     "postcss": "^8.5.8",
     "prettier": "^3.8.3",
-    "tailwindcss": "^4.2.2",
-    "cross-env": "^7.0.3"
+    "tailwindcss": "^4.2.2"
   },
   "scripts": {
     "dev": "vite",
-    "build": "cross-env NODE_ENV=production vite build",
-    "postinstall": "mkdir -p public/images && cp -r node_modules/leaflet/dist/images/* public/images/",
+    "build": "vite build",
     "preview": "vite preview",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json,css}\""
