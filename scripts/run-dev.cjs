@@ -11,7 +11,9 @@ if (isCI) {
 
 // Otherwise run vite normally, forwarding args and stdio.
 const args = process.argv.slice(2);
-const child = spawn('vite', args, { stdio: 'inherit' });
+// Use npx to ensure the local vite binary is resolved cross-platform.
+const cmd = ['npx', 'vite', ...args].join(' ');
+const child = spawn(cmd, { stdio: 'inherit', shell: true });
 child.on('exit', code => process.exit(code));
 child.on('error', err => {
   console.error('Failed to start vite:', err);
