@@ -23,6 +23,18 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
+# ============================================================
+# SECTION 1: FastAPI setup and runtime storage
+# Purpose:
+# - Initializes the backend API used by the React frontend.
+# - Enables CORS so the frontend can call the backend locally.
+# - Stores uploaded datasets and generated algorithm runs in memory.
+#
+# Note:
+# - DATASETS and RUNS are runtime dictionaries used for prototype/demo
+#   execution. They are not permanent database storage.
+# ============================================================
+
 app = FastAPI(title="Delivery Prototype Backend", version="1.1.0")
 app.add_middleware(
     CORSMiddleware,
@@ -43,6 +55,18 @@ OSM_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 # OSMnx HTTP + file caching
 ox.settings.use_cache = True
 ox.settings.log_console = False
+
+# ============================================================
+# SECTION 2: Experiment profiles and fixed demo configuration
+# Purpose:
+# - Defines default parameter sets for generic, Amazon, and Zomato runs.
+# - Controls preview radius, max preview stops, OSM threshold, and enhanced
+#   optimization weights.
+# - Keeps demo execution consistent across baseline and enhanced experiments.
+#
+# Note:
+# - These profiles help ensure repeatable testing for thesis demonstrations.
+# ============================================================
 
 RUN_PROFILES: Dict[str, Dict[str, Any]] = {
     "default_balanced": {
@@ -96,8 +120,30 @@ AMAZON_FIXED_DEMO_AGENTS = 0
 AMAZON_DEFAULT_REPRESENTATIVES = 6
 AMAZON_MIN_PREVIEW_STOPS = 60
 
+# ============================================================
+# SECTION 3: Request models / input schemas
+# Purpose:
+# - Defines the expected request body structure for the frontend.
+# - Validates dataset field mapping, baseline run parameters,
+#   enhanced run parameters, and added-customer payloads.
+#
+# note:
+# - These Pydantic models act as a validation layer before the
+#   backend executes routing, reconstruction, or optimization logic.
+# ============================================================
 
 class FieldMapping(BaseModel):
+    """
+    Stores the frontend-to-backend column mapping for uploaded CSV files.
+
+    Used by:
+    - Dataset validation endpoint.
+    - Dataset reconstruction functions.
+
+    Notes:
+    - Required fields identify depot/customer coordinates.
+    - Optional fields support order date, ETA, rating, area, and agent ID.
+    """
     depot_id: Optional[str] = None
     depot_lat: str
     depot_lon: str
@@ -113,6 +159,16 @@ class FieldMapping(BaseModel):
 
 
 class BaselineRequest(BaseModel):
+    """
+    Stores parameters for the baseline route generation run.
+
+    Used by:
+    - /api/runs/baseline endpoint.
+
+    Notes:
+    - Controls number of representatives, travel speed, service time,
+      random seed, and selected run profile.
+    """
     dataset_id: str
     num_representatives: int = 4
     avg_speed_kmph: float = 40.0
@@ -122,6 +178,16 @@ class BaselineRequest(BaseModel):
 
 
 class EnhancedRequest(BaseModel):
+    """
+    Stores parameters for enhanced DEQ rebalancing.
+
+    Used by:
+    - /api/runs/enhanced endpoint.
+
+    Notes:
+    - alpha_weight and beta_weight control the priority score formula.
+    - max_iterations and border_fraction control the rebalancing search.
+    """
     dataset_id: str
     baseline_run_id: str
     alpha_weight: Optional[float] = None
@@ -132,6 +198,16 @@ class EnhancedRequest(BaseModel):
 
 
 class AddedCustomerPayload(BaseModel):
+    """
+    Represents one new customer manually added from the frontend map.
+
+    Used by:
+    - /api/runs/baseline/add-customers endpoint.
+
+    Notes:
+    - The backend assigns the added customer to the nearest suitable
+      representative and then reroutes the baseline result.
+    """
     label: str
     lat: float
     lon: float
@@ -141,11 +217,46 @@ class AddedCustomerPayload(BaseModel):
 
 
 class BaselineAddCustomersRequest(BaseModel):
+    """
+    Groups added customers under an existing baseline run.
+
+    Used by:
+    - Add-customer rerouting workflow.
+
+    Notes:
+    - baseline_run_id tells the backend which previous baseline result
+      should be updated.
+    """
     baseline_run_id: str
     customers: List[AddedCustomerPayload]
 
+# ============================================================
+# SECTION 4: Distance, OSM, and map geometry helpers
+# Purpose:
+# - Computes direct and road-adjusted distance estimates.
+# - Builds preview distance matrices for baseline and enhanced routing.
+# - Uses OSM/Dijkstra when feasible, with a proxy fallback when the
+#   preview area is too large or OSM lookup fails.
+# - Generates map display geometry for route polylines.
+#
+# Note:
+# - The baseline routing uses Greedy Nearest Neighbor over a distance
+#   matrix. OSM shortest paths are preferred for route realism, while
+#   the road-adjusted fallback keeps the prototype fast and reliable.
+# ============================================================
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """
+    Computes straight-line distance between two latitude/longitude points.
+
+    Used by:
+    - Fallback distance estimation.
+    - Depot/customer filtering.
+    - Candidate selection and workload calculations.
+
+    Notes:
+    - This is faster than OSM routing and is used as a reliable fallback.
+    """
     lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
     dlat = lat2 - lat1
     dlon = lon2 - lon1
@@ -158,9 +269,15 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 def road_adjusted_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """
-    Fast proxy for road-network cost.
-    Keeps runtime close to current haversine approach, but inflates distance
-    to better approximate road travel than straight-line geometry.
+    Computes a fast road-distance proxy from haversine distance.
+
+    Purpose:
+    - Inflates straight-line distance to approximate real travel distance.
+    - Keeps routing responsive when OSM graph lookup is skipped or fails.
+
+    Notes:
+    - This is not a true road-network path, but it is more realistic than
+      pure straight-line distance.
     """
     direct = haversine_km(lat1, lon1, lat2, lon2)
     return direct * 1.25
@@ -302,8 +419,20 @@ def build_preview_distance_matrix(
     osm_threshold_km: float = 14.0,
 ) -> Dict[str, Dict[str, float]]:
     """
-    Build preview-only pairwise cost matrix using OSM shortest-path lengths.
-    Falls back to road_adjusted_km if graph download/snap/path fails.
+    Builds the pairwise distance matrix used by the routing algorithm.
+
+    Purpose:
+    - Creates depot-to-customer and customer-to-customer costs.
+    - Uses OSM shortest-path distance when the preview area is manageable.
+    - Falls back to road-adjusted haversine distance for large/spread-out
+      previews or OSM failures.
+
+    Used by:
+    - Baseline route generation.
+    - Enhanced DEQ evaluation and rerouting.
+
+    note:
+    - This is where Dijkstra-derived travel cost enters the routing process.
     """
     work = ensure_preview_node_ids(assign_df)
     if work.empty:
@@ -519,6 +648,17 @@ def attach_route_display_geometry(
     routes: List[Dict[str, Any]],
     assign_df: pd.DataFrame,
 ) -> List[Dict[str, Any]]:
+    """
+    Attaches visual route geometry for frontend map rendering.
+
+    Purpose:
+    - Adds legPath and returnPath coordinates to each route.
+    - Allows the React Leaflet map to draw route lines more clearly.
+
+    Notes:
+    - If OSM path geometry is unavailable, the frontend can still display
+      fallback straight-line route segments.
+    """
     work = ensure_preview_node_ids(assign_df)
     if work.empty:
         return routes
@@ -563,6 +703,17 @@ def attach_route_display_geometry(
 
     return routes
 
+# ============================================================
+# SECTION 5: Preview, depot selection, and routing-node helpers
+# Purpose:
+# - Prepares the subset of data used for demo-scale routing.
+# - Selects fixed or fallback depots for repeatable experiments.
+# - Ensures each customer/order has a usable routing node ID.
+#
+# note:
+# - The prototype uses preview-sized routing runs to keep computation
+#   practical during demonstration while preserving the routing logic.
+# ============================================================
 
 def preview_matrix_stats(assign_df: pd.DataFrame) -> Dict[str, Any]:
     work = ensure_preview_node_ids(assign_df)
@@ -585,6 +736,20 @@ def filter_df_to_demo_depot(
     min_nodes: int = MIN_FIXED_DEMO_NODES,
     min_agents: int = MIN_FIXED_DEMO_AGENTS,
 ) -> pd.DataFrame:
+    """
+    Filters the dataset to a configured demo depot when available.
+
+    Purpose:
+    - Uses fixed demo depots for Amazon, Zomato, or generic uploads.
+    - Falls back to the strongest available depot if the configured depot
+      is missing or too weak.
+
+    Used by:
+    - Baseline run preparation.
+
+    note:
+    - Fixed depots make baseline/enhanced comparisons repeatable.
+    """
     demo_depot_id = DEMO_PREVIEW_DEPOTS.get(dataset_role)
 
     if not demo_depot_id or "depot_id" not in df.columns:
@@ -635,6 +800,16 @@ def filter_df_to_demo_depot(
 
 
 def summarize_demo_depot_strength(df: pd.DataFrame) -> Dict[str, Any]:
+    """
+    Summarizes whether a depot has enough usable routing data.
+
+    Purpose:
+    - Counts rows, unique customer nodes, agents, and orders.
+    - Helps determine if a depot is strong enough for demo routing.
+
+    Notes:
+    - This avoids selecting depots with too few customers or representatives.
+    """
     work = df.copy()
     if work.empty:
         return {
@@ -679,6 +854,14 @@ def choose_best_demo_depot_id(
     min_nodes: int = MIN_FIXED_DEMO_NODES,
     min_agents: int = MIN_FIXED_DEMO_AGENTS,
 ) -> Optional[str]:
+    """
+    Selects the strongest available depot when the configured demo depot
+    is unavailable or insufficient.
+
+    Purpose:
+    - Scores depots based on agent count, customer nodes, and orders.
+    - Returns the best candidate depot ID for preview routing.
+    """
     if routing_df.empty or "depot_id" not in routing_df.columns:
         return None
 
@@ -713,6 +896,18 @@ def choose_best_demo_depot_id(
 
 
 def ensure_preview_node_ids(assign_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Ensures every row has a node_id used by the distance matrix.
+
+    Purpose:
+    - Uses customer_node_id when available.
+    - Creates fallback customer IDs when node_id is missing.
+
+    Used by:
+    - Distance matrix generation.
+    - Route construction.
+    - Map geometry generation.
+    """
     work = assign_df.copy().reset_index(drop=True)
 
     if "customer_node_id" in work.columns:
@@ -927,8 +1122,29 @@ def build_amazon_order_routing_rows(df: pd.DataFrame) -> pd.DataFrame:
 
     return out.reset_index(drop=True)
 
+# ============================================================
+# SECTION 6: Dataset upload, normalization, and reconstruction
+# Purpose:
+# - Reads uploaded CSV files.
+# - Infers whether the dataset is Amazon, Zomato, or generic.
+# - Converts raw or reconstructed datasets into a common route-ready schema.
+#
+# note:
+# - This section standardizes different public datasets so the same
+#   baseline and enhanced routing algorithms can process them.
+# ============================================================
 
 def read_csv_upload(file: UploadFile) -> pd.DataFrame:
+    """
+    Reads the uploaded CSV file into a pandas DataFrame.
+
+    Purpose:
+    - Validates that the file is not empty.
+    - Converts uploaded bytes into tabular data for processing.
+
+    Used by:
+    - Dataset validation endpoint.
+    """
     content = file.file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
@@ -941,6 +1157,13 @@ def read_csv_upload(file: UploadFile) -> pd.DataFrame:
 
 
 def infer_dataset_role(filename: str) -> str:
+    """
+    Infers dataset role from the uploaded filename.
+
+    Purpose:
+    - Classifies files as Amazon, Zomato, or generic uploads.
+    - Allows the backend to apply dataset-specific reconstruction logic.
+    """
     name = (filename or "").lower()
     if "amazon" in name:
         return "primary_reconstruction"
@@ -963,8 +1186,11 @@ def autofill_mapping_from_known_columns(
     source_role: str,
 ) -> FieldMapping:
     """
-    Backend safety net so raw uploads normalize consistently even if the frontend
-    did not send some optional mapped fields.
+    Fills optional mapping fields when known dataset columns are detected.
+
+    Purpose:
+    - Reduces manual mapping work for common Amazon/Zomato columns.
+    - Helps normalize raw uploads even when the frontend mapping is incomplete.
     """
     data = mapping.model_dump()
 
@@ -989,9 +1215,18 @@ def _base_reconstruct_from_mapping(
     df: pd.DataFrame, mapping: FieldMapping
 ) -> pd.DataFrame:
     """
-    Common reconstruction foundation for raw datasets after field mapping.
-    Produces a cleaned order-level dataframe that can then be specialized
-    for Amazon or Zomato.
+    Builds the common cleaned order-level dataset from mapped CSV columns.
+
+    Purpose:
+    - Converts mapped latitude/longitude fields to numeric values.
+    - Creates order_id, customer_id, order_date, ETA, rating, and area fields.
+    - Removes rows with invalid or missing coordinates.
+    - Creates stable depot IDs when no depot_id column is provided.
+
+    Used by:
+    - Amazon reconstruction.
+    - Zomato reconstruction.
+    - Generic uploaded dataset reconstruction.
     """
     out = pd.DataFrame()
 
@@ -1074,8 +1309,17 @@ def reconstruct_raw_amazon_dataset(
     df: pd.DataFrame, mapping: FieldMapping
 ) -> pd.DataFrame:
     """
-    Reconstruct raw Amazon upload into the cleaned route-eligible schema
-    aligned with the known-good reconstructed Amazon dataset design.
+    Reconstructs a raw Amazon delivery dataset into the route-ready schema.
+
+    Purpose:
+    - Creates synthetic agent IDs from depot and Agent_Age.
+    - Builds customer_node_id from customer coordinates.
+    - Computes direct depot-to-customer distance.
+    - Marks extreme distance outliers as not routing-eligible.
+
+    note:
+    - Amazon does not always provide a direct agent ID, so the prototype
+      synthesizes one for representative-level routing and comparison.
     """
     out = _base_reconstruct_from_mapping(df, mapping)
 
@@ -1178,8 +1422,15 @@ def reconstruct_raw_zomato_dataset(
     df: pd.DataFrame, mapping: FieldMapping
 ) -> pd.DataFrame:
     """
-    Reconstruct raw Zomato upload into the cleaned route-eligible schema
-    aligned with the same node-aware routing structure.
+    Reconstructs a raw Zomato delivery dataset into the route-ready schema.
+
+    Purpose:
+    - Uses Delivery_person_ID as the real agent identifier when available.
+    - Builds customer_node_id from destination coordinates.
+    - Computes distance, demand count, rating, ETA, and eligibility fields.
+
+    note:
+    - Unlike Amazon, Zomato can provide a direct delivery person/agent ID.
     """
     out = _base_reconstruct_from_mapping(df, mapping)
 
@@ -1281,8 +1532,12 @@ def reconstruct_generic_uploaded_dataset(
     df: pd.DataFrame, mapping: FieldMapping
 ) -> pd.DataFrame:
     """
-    Generic fallback for other uploaded delivery datasets.
-    Keeps behavior simple but still produces the cleaned route-eligible schema.
+    Reconstructs any other uploaded dataset using the generic route schema.
+
+    Purpose:
+    - Provides fallback support when the file is not recognized as Amazon
+      or Zomato.
+    - Keeps the upload workflow flexible for other delivery-style datasets.
     """
     out = _base_reconstruct_from_mapping(df, mapping)
 
@@ -1361,6 +1616,17 @@ def reconstruct_generic_uploaded_dataset(
 def normalize_dataset(
     df: pd.DataFrame, mapping: FieldMapping, source_role: str
 ) -> pd.DataFrame:
+    """
+    Converts uploaded data into the standardized backend routing schema.
+
+    Purpose:
+    - Accepts already reconstructed datasets without rebuilding them.
+    - Applies dataset-specific reconstruction for raw Amazon and Zomato files.
+    - Falls back to generic reconstruction for other uploads.
+
+    Used by:
+    - Dataset validation endpoint before baseline/enhanced runs.
+    """
     needed = [
         mapping.depot_lat,
         mapping.depot_lon,
@@ -1453,6 +1719,14 @@ def normalize_dataset(
 
 
 def validation_summary(df: pd.DataFrame) -> Dict[str, Any]:
+    """
+    Builds the dataset validation summary returned to the frontend.
+
+    Purpose:
+    - Counts records, depots, customers, orders, duplicate orders,
+      near-duplicate coordinates, and average rating.
+    - Confirms the uploaded dataset is usable for routing.
+    """
     if df.empty:
         raise HTTPException(
             status_code=400, detail="No valid rows remain after coordinate filtering."
@@ -1484,8 +1758,30 @@ def validation_summary(df: pd.DataFrame) -> Dict[str, Any]:
         },
     }
 
+# ============================================================
+# SECTION 7: ETA feature preparation and model training
+# Purpose:
+# - Builds simple prediction features for delivery time estimation.
+# - Trains baseline/enhanced ETA models used for route scoring.
+# - Provides training metrics such as MAE, RMSE, and R².
+#
+# note:
+# - ETA prediction supports the routing prototype by estimating travel
+#   behavior from distance, rating, and area/cluster information.
+# ============================================================
 
 def build_eta_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Prepares features used for ETA model training.
+
+    Purpose:
+    - Computes direct depot-to-customer distance.
+    - Fills missing rating and observed ETA values.
+    - Produces a clean feature table for model training.
+
+    Used by:
+    - train_eta_models.
+    """
     feat = df.copy()
     feat["direct_distance_km"] = [
         haversine_km(r.depot_lat, r.depot_lon, r.customer_lat, r.customer_lon)
@@ -1501,6 +1797,18 @@ def build_eta_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def train_eta_models(df: pd.DataFrame, seed: int) -> Tuple[np.ndarray, Dict[str, Any]]:
+    """
+    Trains ETA prediction models and returns predicted ETA values.
+
+    Purpose:
+    - Uses Ridge regression as a simpler baseline-style model.
+    - Uses Random Forest as the enhanced prediction model.
+    - Returns model performance metrics for reporting.
+
+    note:
+    - The routing algorithm mainly depends on distance and workload, but
+      ETA prediction provides additional operational context.
+    """
     feat = build_eta_features(df)
     target = feat["observed_eta_min"].values
     features = feat[["direct_distance_km", "rating", "area"]]
@@ -1570,8 +1878,30 @@ def train_eta_models(df: pd.DataFrame, seed: int) -> Tuple[np.ndarray, Dict[str,
     }
     return pred_enhanced, metrics
 
+# ============================================================
+# SECTION 8: Baseline routing and workload construction
+# Purpose:
+# - Assigns customers to representatives.
+# - Builds route order using Greedy Nearest Neighbor.
+# - Computes distance, travel time, operational time, and workload.
+#
+# note:
+# - The baseline routing process follows a distance-driven GNN approach
+#   using the distance matrix built from OSM/Dijkstra or fallback costs.
+# ============================================================
 
 def static_assignment(df: pd.DataFrame, reps: int) -> pd.DataFrame:
+    """
+    Creates a simple baseline assignment of customers to representatives.
+
+    Purpose:
+    - Sorts customers spatially by angle around the depot.
+    - Distributes customers across the requested number of representatives.
+
+    Notes:
+    - This is a fallback/static assignment helper. Other dataset-specific
+      assignment logic may be used for Amazon/Zomato preview runs.
+    """
     work = df.copy()
     c_lat, c_lon = work["depot_lat"].median(), work["depot_lon"].median()
     work["angle"] = np.arctan2(
@@ -1591,6 +1921,29 @@ def static_assignment(df: pd.DataFrame, reps: int) -> pd.DataFrame:
     work["rep_id"] = assignments[: len(work)]
     return work.drop(columns=["angle"])
 
+def compute_normalized_delay_series(df: pd.DataFrame) -> pd.Series:
+    """
+    Computes normalized delay values used in workload calculation.
+
+    Formula:
+    - ΔT = (Time Taken - mean(Time Taken)) / std(Time Taken)
+
+    Purpose:
+    - Converts observed ETA/time taken into a normalized delay score.
+    - Allows delay to contribute to workload without dominating distance/time.
+    """
+    if "observed_eta_min" not in df.columns:
+        return pd.Series(0.0, index=df.index)
+
+    values = pd.to_numeric(df["observed_eta_min"], errors="coerce")
+
+    mean_val = float(values.mean()) if values.notna().any() else 0.0
+    std_val = float(values.std(ddof=0)) if values.notna().any() else 0.0
+
+    if std_val <= 1e-9:
+        return pd.Series(0.0, index=df.index)
+
+    return ((values - mean_val) / std_val).fillna(0.0)
 
 def route_one_rep(
     group: pd.DataFrame,
@@ -1599,6 +1952,20 @@ def route_one_rep(
     distance_matrix: Dict[str, Dict[str, float]],
 ) -> Tuple[List[Dict[str, Any]], Dict[str, float]]:
     rows = ensure_preview_node_ids(group).to_dict("records")
+    """
+    Builds one representative route using Greedy Nearest Neighbor.
+
+    Purpose:
+    - Starts from the depot.
+    - Repeatedly selects the nearest unvisited customer based on matrix cost.
+    - Computes leg distance, cumulative distance, ETA, and workload contribution.
+
+    note:
+    - This is the core baseline routing step where GNN is applied.
+    """
+    work = ensure_preview_node_ids(group.copy())
+    work["delay_score"] = compute_normalized_delay_series(work)
+    rows = work.to_dict("records")
     if not rows:
         return [], {
             "distance_km": 0.0,
@@ -1662,6 +2029,14 @@ def append_added_customers_to_assign_df(
     assign_df: pd.DataFrame,
     customers: List[AddedCustomerPayload],
 ) -> pd.DataFrame:
+    """
+    Appends manually added customers to an existing assignment DataFrame.
+
+    Purpose:
+    - Creates backend-compatible rows for customers added from the map UI.
+    - Assigns generated customer/order/node IDs.
+    - Preserves the same schema used by normal routing rows.
+    """
     work = ensure_preview_node_ids(assign_df.copy())
 
     if work.empty:
@@ -1723,6 +2098,20 @@ def route_all(
     name: str,
     distance_matrix: Dict[str, Dict[str, float]],
 ) -> Tuple[List[Dict[str, Any]], pd.DataFrame, Dict[str, float]]:
+    """
+    Routes all representatives and summarizes their route statistics.
+
+    Purpose:
+    - Groups assigned customers by representative.
+    - Calls route_one_rep for each representative.
+    - Builds route objects for the frontend map/table.
+    - Creates per-representative workload, distance, and time summaries.
+
+    Used by:
+    - Baseline run.
+    - Enhanced evaluation.
+    - Add-customer rerouting.
+    """
     work = ensure_preview_node_ids(assign_df)
     routes = []
     rep_rows = []
@@ -1779,6 +2168,17 @@ def route_all(
     }
     return routes, rep_df, total
 
+# ============================================================
+# SECTION 9: Priority scoring, fairness, workload, and KPI metrics
+# Purpose:
+# - Computes DEQ priority scores.
+# - Measures workload balance and fairness.
+# - Builds KPI summaries used in the frontend comparison page.
+#
+# note:
+# - These metrics connect the implementation to the thesis evaluation:
+#   distance, travel time, operational time, WBI, JFI, and coverage ratio.
+# ============================================================
 
 def compute_thesis_priority_scores(
     assign_df: pd.DataFrame,
@@ -1787,10 +2187,19 @@ def compute_thesis_priority_scores(
     beta: float = 0.40,
 ) -> pd.DataFrame:
     """
-    Thesis priority score:
-        PS = alpha * (Delta T) + beta * (1 - Rating)
+    Computes the DEQ priority score for each representative.
 
-    Lower PS = higher queue priority.
+    Formula:
+    - PS = alpha * ΔT + beta * (1 - Rating)
+
+    Purpose:
+    - Ranks representatives based on delay/workload and rating.
+    - Lower priority score means the representative is prioritized earlier
+      in the queue.
+
+    Used by:
+    - Enhanced DEQ rebalancing.
+    - Representative card/queue display.
     """
     if rep_df.empty:
         return rep_df.copy()
@@ -1837,6 +2246,16 @@ def compute_thesis_priority_scores(
 
 
 def jains_fairness(values: List[float]) -> float:
+    """
+    Computes Jain's Fairness Index.
+
+    Purpose:
+    - Measures how evenly workload is distributed across representatives.
+    - Higher values indicate better fairness.
+
+    note:
+    - The thesis target is typically close to 1.0, such as JFI ≥ 0.95.
+    """
     arr = np.array(values, dtype=float)
     if len(arr) == 0 or np.allclose(arr.sum(), 0):
         return 1.0
@@ -1845,10 +2264,14 @@ def jains_fairness(values: List[float]) -> float:
 
 def workload_balance_index(values: List[float]) -> float:
     """
-        WBI = sigma(W) / mu(W)
+    Computes Workload Balance Index.
 
-    Lower is better.
-    Example display can be percentage: WBI * 100
+    Formula:
+    - WBI = standard deviation of workload / mean workload
+
+    Purpose:
+    - Measures workload imbalance across representatives.
+    - Lower values indicate better balance.
     """
     arr = np.array(values, dtype=float)
     if len(arr) == 0:
@@ -1862,6 +2285,14 @@ def workload_balance_index(values: List[float]) -> float:
 def rep_cards(
     rep_df: pd.DataFrame, assign_df: Optional[pd.DataFrame] = None
 ) -> List[Dict[str, Any]]:
+    """
+    Builds representative summary cards for the frontend.
+
+    Purpose:
+    - Converts per-representative route metrics into UI-ready objects.
+    - Includes workload, priority score, queue position, assigned customers,
+      distance, and total time.
+    """
     if rep_df.empty:
         return []
 
@@ -1904,6 +2335,14 @@ def rep_cards(
 def kpis_from_totals(
     total: Dict[str, float], rep_df: pd.DataFrame, dataset_size: int
 ) -> Dict[str, Any]:
+    """
+    Builds KPI values for baseline/enhanced comparison.
+
+    Purpose:
+    - Computes total distance, travel time, operational time, fairness,
+      workload balance, coverage, and averages.
+    - Returns the metric structure expected by the React frontend.
+    """
     fairness = jains_fairness(rep_df["workload_min"].tolist())
     wbi = workload_balance_index(rep_df["workload_min"].tolist())
 
@@ -1952,6 +2391,13 @@ def make_algorithm_run(
     notes: Optional[List[str]] = None,
     assign_df: Optional[pd.DataFrame] = None,
 ) -> Dict[str, Any]:
+    """
+    Builds the final algorithm run payload returned to the frontend.
+
+    Purpose:
+    - Combines routes, representative cards, KPIs, training metrics,
+      and run notes into one API response.
+    """
     return {
         "id": str(uuid.uuid4()),
         "name": name,
@@ -1963,10 +2409,37 @@ def make_algorithm_run(
         "notes": notes or [],
     }
 
+# ============================================================
+# SECTION 10: Enhanced DEQ rebalancing logic
+# Purpose:
+# - Improves the baseline assignment by evaluating possible customer
+#   movements or swaps between representatives.
+# - Uses workload/fairness, distance, time, and priority score conditions
+#   to decide whether a reassignment should be accepted.
+# - Applies the Double-Ended Queue concept by prioritizing representatives
+#   based on workload and priority score.
+#
+# note:
+# - This is the enhanced part of the system. The baseline finds routes
+#   using GNN, while the enhanced model attempts to rebalance assignments
+#   without worsening operational performance.
+# ============================================================
 
 def border_candidates(
     assign_df: pd.DataFrame, heavy_rep: str, light_rep: str, fraction: float
 ) -> List[int]:
+    """
+    Selects candidate customers from a heavier representative for possible transfer.
+
+    Purpose:
+    - Finds customers near the boundary between a heavy representative and
+      a lighter representative.
+    - Limits the search using border_fraction so the enhanced algorithm does
+      not evaluate every possible customer movement.
+
+    Used by:
+    - Enhanced DEQ reassignment search.
+    """
     heavy = assign_df[assign_df["rep_id"] == heavy_rep].copy()
     light = assign_df[assign_df["rep_id"] == light_rep].copy()
 
@@ -1994,8 +2467,14 @@ def swap_candidates(
     fraction: float,
 ) -> Tuple[List[int], List[int]]:
     """
-    Candidate rows for one-for-one swap search.
-    We take a border subset from both reps, guided by proximity toward the other rep.
+    Selects candidate customers from two representatives for possible swapping.
+
+    Purpose:
+    - Finds near-border customers from both the heavy and light representative.
+    - Supports one-for-one reassignment attempts when direct movement is not enough.
+
+    Notes:
+    - This keeps the enhanced search focused on practical route-border changes.
     """
     heavy = assign_df[assign_df["rep_id"] == heavy_rep].copy()
     light = assign_df[assign_df["rep_id"] == light_rep].copy()
@@ -2040,6 +2519,17 @@ def evaluate_assignment(
     service_min: float,
     distance_matrix: Dict[str, Dict[str, float]],
 ) -> Dict[str, Any]:
+    """
+    Evaluates a complete assignment by rerouting all representatives.
+
+    Purpose:
+    - Recomputes routes after a possible move or swap.
+    - Measures total distance, travel time, operational time, fairness,
+      and workload balance.
+
+    Used by:
+    - Enhanced DEQ acceptance checking.
+    """
     routes, rep_df, total = route_all(
         assign_df, speed_kmph, service_min, "eval", distance_matrix
     )
@@ -2094,6 +2584,21 @@ def enhance_assignment(
     distance_matrix: Dict[str, Dict[str, float]],
     is_zomato_mode: bool = False,
 ) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
+    """
+    Performs enhanced DEQ-based assignment rebalancing.
+
+    Purpose:
+    - Starts from the baseline customer-to-representative assignment.
+    - Identifies overloaded and underloaded representatives.
+    - Tests candidate moves/swaps between representatives.
+    - Accepts changes only when fairness improves and distance/time
+      constraints are not worsened beyond tolerance.
+
+    note:
+    - This function implements the main enhancement over the baseline.
+    - It connects the DEQ concept with operational constraints such as
+      workload balance, travel distance, and service time.
+    """
     current = ensure_preview_node_ids(assign_df.copy())
     logs: List[Dict[str, Any]] = []
     current_eval = evaluate_assignment(
@@ -2214,6 +2719,12 @@ def enhance_assignment(
                     score_gain = current_score - trial_score
 
                     EPS = 1e-6
+
+                    # Acceptance rule:
+                    # - Keep only changes that improve workload/fairness.
+                    # - Reject changes that worsen distance or operational time beyond EPS.
+                    # - This prevents the enhanced algorithm from improving fairness at the
+                    #   expense of unreasonable route cost.
 
                     if fairness_gain <= 0:
                         continue
@@ -2464,13 +2975,15 @@ def amazon_distance_polish_assignment(
     max_wbi_increase: float = 0.0,
 ) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
     """
-    Amazon-only final improvement pass.
+    Applies an Amazon-specific final distance improvement pass.
 
-    The normal DEQ pass prioritizes fairness first. For Amazon, fairness often reaches
-    ~1.00 quickly, so strict fairness-gain rules can reject distance-improving moves.
-    This pass only runs for the Amazon role and accepts a move when it reduces
-    distance/time while keeping fairness very high and workload balance within a
-    small tolerance.
+    Purpose:
+    - Reviews Amazon assignments after DEQ rebalancing.
+    - Attempts distance-improving swaps while preserving workload/fairness rules.
+
+    Notes:
+    - This is dataset-specific tuning for Amazon preview behavior.
+    - It should not replace the general enhanced DEQ logic.
     """
     current = ensure_preview_node_ids(assign_df.copy()).reset_index(drop=True)
     logs: List[Dict[str, Any]] = []
@@ -3533,9 +4046,26 @@ def preview_summary_from_assign_df(assign_df: pd.DataFrame) -> Dict[str, Any]:
         "depotLon": depot_lon,
     }
 
+# ============================================================
+# SECTION 12: API endpoints
+# Purpose:
+# - Exposes backend functions to the React frontend.
+# - Supports dataset validation, dataset metadata, baseline routing,
+#   add-customer rerouting, enhanced DEQ routing, and export/download.
+#
+# note:
+# - The frontend does not directly run routing algorithms. It sends API
+#   requests to these endpoints, and the backend returns route/KPI payloads.
+# ============================================================
 
 @app.get("/api/health")
 def health() -> Dict[str, str]:
+    """
+    Simple backend health-check endpoint.
+
+    Purpose:
+    - Lets the frontend verify that the FastAPI server is reachable.
+    """
     return {"status": "ok"}
 
 
@@ -3545,6 +4075,19 @@ async def validate_dataset(
     mapping_json: str = Form(...),
     dataset_role: Optional[str] = Form(None),
 ) -> Dict[str, Any]:
+    """
+    Validates and reconstructs an uploaded dataset.
+
+    Purpose:
+    - Reads the uploaded CSV file.
+    - Applies frontend field mapping.
+    - Infers or accepts dataset role.
+    - Normalizes the file into the route-ready schema.
+    - Stores the cleaned dataset in memory for later routing.
+
+    Used by:
+    - Dataset Upload page.
+    """
     try:
         mapping = FieldMapping(**json.loads(mapping_json))
     except Exception as exc:
@@ -3606,6 +4149,13 @@ async def validate_dataset(
 
 @app.get("/api/datasets/{dataset_id}/meta")
 def dataset_meta(dataset_id: str) -> Dict[str, Any]:
+    """
+    Returns dataset metadata needed by the frontend.
+
+    Purpose:
+    - Provides dataset role, source label, depot information,
+      record count, customer count, and order count.
+    """
     payload = DATASETS.get(dataset_id)
     if not payload:
         return Response(
@@ -3643,6 +4193,13 @@ def dataset_meta(dataset_id: str) -> Dict[str, Any]:
 
 @app.get("/api/datasets/{dataset_id}/reconstructed")
 def download_reconstructed_dataset(dataset_id: str):
+    """
+    Downloads the reconstructed route-ready dataset as CSV.
+
+    Purpose:
+    - Allows users to inspect or save the normalized dataset produced
+      after validation.
+    """
     payload = DATASETS.get(dataset_id)
     if not payload:
         return Response(
@@ -3665,6 +4222,20 @@ def download_reconstructed_dataset(dataset_id: str):
 
 @app.post("/api/runs/baseline")
 def run_baseline(req: BaselineRequest) -> Dict[str, Any]:
+    """
+    Executes the baseline routing algorithm.
+
+    Purpose:
+    - Loads the validated dataset.
+    - Trains ETA prediction models.
+    - Builds routing rows and preview subsets.
+    - Creates the distance matrix.
+    - Runs GNN-based route construction.
+    - Returns routes, representative summaries, KPIs, and map data.
+
+    note:
+    - This endpoint represents the baseline GNN + Dijkstra workflow.
+    """
     print("run_baseline started")
 
     payload = DATASETS.get(req.dataset_id)
@@ -3856,9 +4427,35 @@ def run_baseline(req: BaselineRequest) -> Dict[str, Any]:
     print("run_baseline finished")
     return preview_run
 
+# ============================================================
+# SECTION 11: Add-customer rerouting workflow
+# Purpose:
+# - Handles customers manually added from the frontend map.
+# - Assigns each new customer to the nearest suitable representative.
+# - Rebuilds the distance matrix and reroutes the updated baseline result.
+#
+# note:
+# - Added customers are processed sequentially. After one customer is
+#   assigned, it becomes part of the route state before the next customer
+#   is assigned. This prevents all added customers from automatically
+#   going to only one representative.
+# ============================================================
 
 @app.post("/api/runs/baseline/add-customers")
 def add_customers_to_baseline(req: BaselineAddCustomersRequest) -> Dict[str, Any]:
+    """
+    Updates an existing baseline run with newly added customers.
+
+    Purpose:
+    - Retrieves the previous baseline assignment.
+    - Assigns each new customer to the nearest representative route.
+    - Appends the new customer rows into the routing dataset.
+    - Rebuilds the preview distance matrix.
+    - Reruns baseline routing and returns the updated run.
+
+    Used by:
+    - Add Customer modal in the React frontend.
+    """
     baseline_payload = RUNS.get(req.baseline_run_id)
     if not baseline_payload:
         raise HTTPException(status_code=404, detail="Baseline run not found.")
@@ -3975,12 +4572,17 @@ def assign_new_customer_to_nearest_rep(
     customer_lon: float,
 ) -> str:
     """
-    Assign a newly added customer to the representative whose existing route
-    has the nearest customer stop to the new customer.
+    Finds the representative route nearest to a newly added customer.
 
-    This is used for Add Customer so multiple new customers are not all pushed
-    to the same preselected rep unless that rep is truly nearest after each
-    sequential update.
+    Purpose:
+    - Compares the new customer's coordinate against each representative's
+      existing assigned stops.
+    - Selects the route with the nearest existing stop.
+    - Uses current workload count as a tie-breaker.
+
+    note:
+    - This keeps added-customer assignment spatially reasonable instead
+      of assigning all new customers to a fixed representative.
     """
     work = ensure_preview_node_ids(assign_df.copy())
     if work.empty or "rep_id" not in work.columns:
@@ -4029,6 +4631,17 @@ def assign_new_customer_by_priority_queue(
     alpha: float = 0.60,
     beta: float = 0.40,
 ) -> str:
+    """
+    Alternative added-customer assignment helper based on DEQ priority.
+
+    Purpose:
+    - Ranks representatives using priority score.
+    - Can be used for a priority-aware assignment strategy.
+
+    Notes:
+    - The current baseline add-customer endpoint uses nearest-route
+      assignment instead, so this helper is optional/experimental.
+    """
     scored = compute_thesis_priority_scores(assign_df, rep_df, alpha=alpha, beta=beta)
 
     best_rep = None
@@ -4063,6 +4676,19 @@ def assign_new_customer_by_priority_queue(
 
 @app.post("/api/runs/enhanced")
 def run_enhanced(req: EnhancedRequest) -> Dict[str, Any]:
+    """
+    Executes the enhanced DEQ rebalancing algorithm.
+
+    Purpose:
+    - Starts from a previous baseline run.
+    - Applies DEQ-based rebalancing using priority score and workload.
+    - Recalculates routes and KPIs after accepted changes.
+    - Returns the enhanced route result for comparison.
+
+    note:
+    - This endpoint represents the enhanced algorithm evaluated against
+      the baseline output.
+    """
     print("enhanced started")
     dataset_payload = DATASETS.get(req.dataset_id)
     baseline_payload = RUNS.get(req.baseline_run_id)
