@@ -64,7 +64,7 @@
     "tailwindcss": "^4.2.2"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "node ./scripts/run-dev.js",
     "build": "vite build",
     "preview": "vite preview",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css}\"",
